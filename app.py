@@ -4,7 +4,6 @@ from flask_migrate import Migrate
 from models import db, User, Workout, Exercise
 from werkzeug.security import generate_password_hash, check_password_hash
 
-
 # heart of app
 app = Flask(__name__)
 
@@ -14,6 +13,43 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 migrate = Migrate(app=app, db=db)
 
 db.init_app(app=app)
+CORS(app)
+
+@app.before_request
+def create_tables():
+    db.create_all
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({'error': 'Not found'}), 404
+
+@app.route('/users', methods=['POST'])
+def create_user():
+    """Create a new user."""
+    data = request.get_json()
+    if not data or not data.get('username') or not data.get('email') or not data.get('password'):
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    if User.query.filter_by(username=data['username']).first():
+        return jsonify({'error': 'Username already exists'}), 400
+    
+    if User.query.filter_by(email=data['email']).first():
+        return jsonify({'error': 'Email already exists'}), 400
+    
+    hashed_password = generate_password_hash(data['password'])
+    new_user = User(
+        username=data['username'],
+        email=data['email'],
+        password_hash=hashed_password
+    )
+    
+    try:
+        db.session.add(new_user)
+        db.session.commit()
+        return jsonify(new_user.to_json()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'An unexpected error occurred: {e}'}), 500
 
 # Exercise Endpoints
 
