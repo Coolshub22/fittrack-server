@@ -2,7 +2,7 @@ from flask import Flask, request,jasonify
 from flask_cors import CORS
 from flask_migrate import Migrate
 from models import db, User, Workout,Exercise
-from werkzeug.security import generate_password_hasg, check_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # heart of app
 app = Flask(__name__)
@@ -50,7 +50,6 @@ def create_user():
     db.session.add(new_user)
     db.session.commit()
     
-    # Exclude password hash from the response
     user_data = new_user.to_json()
     user_data.pop('password_hash', None) 
 
@@ -89,6 +88,68 @@ def delete_user(user_id):
     db.session.delete(user)
     db.session.commit()
     return jsonify({'message': f'User {user_id} deleted successfully.'}), 200
+
+
+
+@app.route('/workouts', methods=['POST'])
+def create_workout():
+    """Create a new workout for a user."""
+    data = request.get_json()
+    if not data or not data.get('name') or not data.get('date') or not data.get('user_id'):
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    User.query.get_or_404(data['user_id'])
+
+    new_workout = Workout(
+        name=data['name'],
+        date=data['date'],
+        notes=data.get('notes'),
+        user_id=data['user_id']
+    )
+    db.session.add(new_workout)
+    db.session.commit()
+    return jsonify(new_workout.to_json()), 201
+
+@app.route('/workouts', methods=['GET'])
+def get_workouts():
+    """Get all workouts, optionally filtered by user_id."""
+    user_id = request.args.get('user_id')
+    if user_id:
+        workouts = Workout.query.filter_by(user_id=user_id).all()
+    else:
+        workouts = Workout.query.all()
+    return jsonify([workout.to_json() for workout in workouts])
+
+@app.route('/workouts/<int:workout_id>', methods=['GET'])
+def get_workout(workout_id):
+    """Get a single workout by ID."""
+    workout = Workout.query.get_or_404(workout_id)
+    return jsonify(workout.to_json())
+
+@app.route('/workouts/<int:workout_id>', methods=['PATCH'])
+def update_workout(workout_id):
+    """Update a workout's information."""
+    workout = Workout.query.get_or_404(workout_id)
+    data = request.get_json()
+    
+    if 'name' in data:
+        workout.name = data['name']
+    if 'date' in data:
+        workout.date = data['date']
+    if 'notes' in data:
+        workout.notes = data['notes']
+        
+    db.session.commit()
+    return jsonify(workout.to_json())
+
+@app.route('/workouts/<int:workout_id>', methods=['DELETE'])
+def delete_workout(workout_id):
+    """Delete a workout."""
+    workout = Workout.query.get_or_404(workout_id)
+    db.session.delete(workout)
+    db.session.commit()
+    return jsonify({'message': f'Workout {workout_id} deleted successfully.'}), 200
+
 
 
 # running flask apps
