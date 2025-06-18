@@ -17,7 +17,7 @@ CORS(app)
 
 @app.before_request
 def create_tables():
-    db.create_all
+    db.create_all()
 
 @app.errorhandler(404)
 def not_found(error):
