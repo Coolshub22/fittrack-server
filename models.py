@@ -18,12 +18,19 @@ class User(db.Model):
     email = db.Column(db.String, unique=True)
     date = db.Column(db.DateTime(), default=datetime.now)
 
-
+    workouts = relationship("Workout", back_populates="user")
+    
     def __repr__(self):
         return f"<User(id={self.id}, name={self.name}, email={self.email})>"
-
-
-    workouts = relationship("Workout", back_populates="user")
+    
+    def to_json(self):
+        # Create a dictionary of all attributes
+        user_data = {
+            'id': self.id,
+            'username': self.username,
+            'email': self.email,
+        }
+        return user_data
 
 
 class Workout(db.Model):
@@ -44,7 +51,14 @@ class Workout(db.Model):
         def __repr__(self):
             return f"<Workout(id={self.id}, name={self.workout_name}, date={self.date})>"
         
-
+        def to_json(self):
+           return {
+            'id': self.id,
+            'name': self.name,
+            'date': self.date,
+            'notes': self.notes,
+            'user_id': self.user_id
+        }
 
 class Exercise(db.Model):
         __tablename__ = "exercises"
@@ -65,7 +79,18 @@ class Exercise(db.Model):
         def __repr__(self):
             return f"<Exercise(id={self.id}, name={self.name}, type={self.type})>"
 
-
+        
+        def to_json(self):
+            return {
+            'id': self.id,
+            'name': self.name,
+            'type': self.type,
+            'sets': self.sets,
+            'reps': self.reps,
+            'weight': self.weight,
+            'duration': self.duration,
+            'workout_id': self.workout_id
+        }
 
 
         
