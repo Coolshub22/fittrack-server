@@ -1,6 +1,9 @@
-from flask import Flask, request, jsonify # ADDED request, jsonify
+from flask import Flask, request,jasonify
+from flask_cors import CORS
 from flask_migrate import Migrate
-from models import db, User, Workout, Exercise # ADDED User, Workout, Exercise from models
+from models import db, User, Workout,Exercise
+from werkzeug.security import generate_password_hash, check_password_hash
+
 
 # heart of app
 app = Flask(__name__)
