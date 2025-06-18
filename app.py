@@ -1,7 +1,7 @@
-from flask import Flask, request,jasonify
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_migrate import Migrate
-from models import db, User, Workout,Exercise
+from models import db, User, Workout, Exercise
 from werkzeug.security import generate_password_hash, check_password_hash
 
 
