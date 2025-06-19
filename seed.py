@@ -71,8 +71,10 @@ def create_exercises(workouts_with_names, min_e=2, max_e=5):
         possible_exercises = workout_exercises_map.get(name, [])
         selected_exercises = []
 
-        for _ in range(random.randint(min_e, max_e)):
-            ex = random.choice(possible_exercises)
+        exercise_count = min(len(possible_exercises), random.randint(min_e, max_e))
+        selected = random.sample(possible_exercises, k=exercise_count)
+
+        for ex in selected:
             selected_exercises.append(ex["name"])
             exercise = Exercise(
                 name=ex["name"],
@@ -85,6 +87,7 @@ def create_exercises(workouts_with_names, min_e=2, max_e=5):
                 workout=workout
             )
             db.session.add(exercise)
+
 
         # Create realistic note using actual exercises
         formatted_exercises = ", ".join(selected_exercises)
