@@ -12,7 +12,7 @@ def create_users(n=10):
     users = []
     for _ in range(n):
         user = User(
-            name=fake.name(),
+            username=fake.name(),
             email=fake.unique.email(),
             date=datetime.now()
         )

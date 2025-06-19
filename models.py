@@ -14,12 +14,18 @@ class User(db.Model):
     __tablename__ = "users"
 
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String, nullable=False)
+    username = db.Column(db.String, nullable=False)
     email = db.Column(db.String, unique=True)
     date = db.Column(db.DateTime(), default=datetime.now)
 
-    workouts = relationship("Workout", back_populates="user")
-    
+    workouts = db.relationship(
+         'Workout',
+         back_populates='user',   # changed from backref
+         cascade='all, delete-orphan',
+         passive_deletes=True
+    )
+
+
     def __repr__(self):
         return f"<User(id={self.id}, name={self.name}, email={self.email})>"
     
@@ -42,11 +48,19 @@ class Workout(db.Model):
         workout_name = db.Column(db.String, nullable=False)
         notes = db.Column(db.Text, nullable=True)
         intensity = db.Column(db.Float)
-        user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+        user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+
 
        
         user = relationship("User", back_populates="workouts")
-        exercises = relationship("Exercise", back_populates="workout")
+
+        exercises = relationship(
+             "Exercise",
+             back_populates="workout",
+             cascade="all, delete-orphan",
+             passive_deletes=True
+        )
+
 
         def __repr__(self):
             return f"<Workout(id={self.id}, name={self.workout_name}, date={self.date})>"
@@ -72,7 +86,7 @@ class Exercise(db.Model):
         reps = db.Column(db.Integer)
         weight = db.Column(db.Float, nullable=True)
         duration = db.Column(db.Integer)  # in minutes
-        workout_id = db.Column(db.Integer, db.ForeignKey('workouts.id'), nullable=False)
+        workout_id = db.Column(db.Integer, db.ForeignKey('workouts.id', ondelete='CASCADE'), nullable=False)
 
         workout = relationship("Workout", back_populates="exercises")
 
