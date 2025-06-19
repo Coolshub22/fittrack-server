@@ -156,17 +156,17 @@ def create_workout():
     data = request.get_json()
     if (
         not data
-        or not data.get("name")
+        or not data.get("workout_name")
         or not data.get("date")
         or not data.get("user_id")
     ):
-        return jsonify({"error": "Missing required fields: name, date, user_id"}), 400
+        return jsonify({"error": "Missing required fields: workout_name, date, user_id"}), 400
 
     # Ensure the user exists before creating a workout for them
     User.query.get_or_404(data["user_id"])  # This will return 404 if user not found
 
     new_workout = Workout(
-        name=data["name"],
+        workout_name=data["workout_name"],
         date=data["date"],
         notes=data.get("notes"),  # Notes is optional
         user_id=data["user_id"],
