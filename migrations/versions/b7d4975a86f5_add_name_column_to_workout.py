@@ -1,8 +1,8 @@
-"""Add cascading deletes to user → workout → exercise
+"""Add name column to Workout
 
-Revision ID: 61ec99c5746c
+Revision ID: b7d4975a86f5
 Revises: 
-Create Date: 2025-06-19 10:41:19.934700
+Create Date: 2025-06-19 23:54:19.817510
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '61ec99c5746c'
+revision = 'b7d4975a86f5'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -22,6 +22,7 @@ def upgrade():
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('username', sa.String(), nullable=False),
     sa.Column('email', sa.String(), nullable=True),
+    sa.Column('password_hash', sa.String(), nullable=False),
     sa.Column('date', sa.DateTime(), nullable=True),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('email')

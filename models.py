@@ -16,6 +16,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String, nullable=False)
     email = db.Column(db.String, unique=True)
+    password_hash = db.Column(db.String, nullable=False, default='fittrack25')
     date = db.Column(db.DateTime(), default=datetime.now)
 
     workouts = db.relationship(
@@ -68,7 +69,7 @@ class Workout(db.Model):
         def to_json(self):
            return {
             'id': self.id,
-            'name': self.name,
+            'workout_name': self.workout_name,
             'date': self.date,
             'notes': self.notes,
             'user_id': self.user_id
