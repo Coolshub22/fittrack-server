@@ -1,8 +1,8 @@
-"""Add name column to Workout
+"""Initial clean migration
 
-Revision ID: b7d4975a86f5
+Revision ID: eec19b24cd43
 Revises: 
-Create Date: 2025-06-19 23:54:19.817510
+Create Date: 2025-06-25 19:17:35.850535
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'b7d4975a86f5'
+revision = 'eec19b24cd43'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -25,7 +25,8 @@ def upgrade():
     sa.Column('password_hash', sa.String(), nullable=False),
     sa.Column('date', sa.DateTime(), nullable=True),
     sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('email')
+    sa.UniqueConstraint('email'),
+    sa.UniqueConstraint('username')
     )
     op.create_table('workouts',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -34,7 +35,7 @@ def upgrade():
     sa.Column('notes', sa.Text(), nullable=True),
     sa.Column('intensity', sa.Float(), nullable=True),
     sa.Column('user_id', sa.Integer(), nullable=False),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('exercises',
