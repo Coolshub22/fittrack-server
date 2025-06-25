@@ -16,7 +16,7 @@ class User(db.Model, SerializerMixin):
     serialize_rules = ('-workouts.user',)  # Avoid circular serialization
 
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String, nullable=False)
+    username = db.Column(db.String, unique=True, nullable=False)
     email = db.Column(db.String, unique=True)
     password_hash = db.Column(db.String, nullable=False, default='fittrack25')
     date = db.Column(db.DateTime(), default=datetime.now)
@@ -30,7 +30,7 @@ class User(db.Model, SerializerMixin):
 
 
     def __repr__(self):
-        return f"<User(id={self.id}, name={self.name}, email={self.email})>"
+        return f"<User(id={self.id}, name={self.username}, email={self.email})>"
     
     def to_json(self):
         user_data = {
