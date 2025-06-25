@@ -21,24 +21,24 @@ class User(db.Model, SerializerMixin):
     password_hash = db.Column(db.String, nullable=False, default='fittrack25')
     date = db.Column(db.DateTime(), default=datetime.now)
 
-    workouts = db.relationship(
-         'Workout',
-         back_populates='user',   
-         cascade='all, delete-orphan',
-         passive_deletes=True
-    )
-
-
+    workouts = relationship("Workout", back_populates="user", cascade = 'all, delete-orphan', passive_deletes=True)
+    
     def __repr__(self):
         return f"<User(id={self.id}, name={self.username}, email={self.email})>"
     
-    def to_json(self):
-        user_data = {
-            'id': self.id,
-            'username': self.username,
-            'email': self.email,
-        }
-        return user_data
+    @validates('username')
+    def validate_username(self, key, value):
+         if not value or len(value) < 3:
+              raise ValueError("Username must be at least 3 characters long")
+         return value
+    
+
+    @validates('email')
+    def validate_email(self, key, value):
+         if '@' not in value:
+              raise ValueError("Invalid email address")
+         return value
+    
 
 
 class Workout(db.Model, SerializerMixin):
