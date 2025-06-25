@@ -1,65 +1,56 @@
-from flask import Flask, request, jsonify, make_response  # Added make_response
+import os
+from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 from flask_migrate import Migrate
+from flask_bcrypt import Bcrypt
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from models import db, User, Workout, Exercise
-from werkzeug.security import generate_password_hash
+from dotenv import load_dotenv
 
-# heart of app
-app = Flask(__name__)  # Corrected _name to _name_
 
+load_dotenv()  # Load environment variables from .env
+
+
+app = Flask(__name__)
+app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "a-secure-default-secret-key")
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///fittrack.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.json.compact = False  # Added for cleaner JSON output
-
-migrate = Migrate(app=app, db=db)
+app.json.compact = False
 
 db.init_app(app=app)
+migrate = Migrate(app=app, db=db)
+bcrypt = Bcrypt(app)
+jwt = JWTManager(app)
 CORS(app)
 
-# Global before_request to ensure tables are created
-# Ensure db.create_all() is called with parentheses
-# @app.before_request
-# def create_tables():
-#     db.create_all()
 
-
-# Global error handler for 404 Not Found
 @app.errorhandler(404)
 def not_found(error):
+    """Handles 404 Not Found errors."""
     return jsonify({"error": "Not found"}), 404
 
 
-# Base route
 @app.route("/")
 def index():
+    """Welcome endpoint for the API."""
     body = {"message": "Welcome to FitTrack API!"}
     return make_response(body, 200)
 
 
-# User Endpoints
-
-
-@app.post("/users")
-def create_user():
+@app.post("/register")
+def register():
     """Create a new user."""
     data = request.get_json()
-    if (
-        not data
-        or not data.get("username")
-        or not data.get("email")
-        or not data.get("password")
-    ):
-        return jsonify(
-            {"error": "Missing required fields: username, email, password"}
-        ), 400
+    if not data or not all(k in data for k in ("username", "email", "password")):
+        return jsonify({"error": "Missing required fields: username, email, password"}), 400
 
     if User.query.filter_by(username=data["username"]).first():
-        return jsonify({"error": "Username already exists"}), 409  # Using 409 Conflict
+        return jsonify({"error": "Username already exists"}), 409
 
     if User.query.filter_by(email=data["email"]).first():
-        return jsonify({"error": "Email already exists"}), 409  # Using 409 Conflict
+        return jsonify({"error": "Email already exists"}), 409
 
-    hashed_password = generate_password_hash(data["password"])
+    hashed_password = bcrypt.generate_password_hash(data["password"]).decode('utf-8')
     new_user = User(
         username=data["username"], email=data["email"], password_hash=hashed_password
     )
@@ -67,109 +58,104 @@ def create_user():
     try:
         db.session.add(new_user)
         db.session.commit()
-        # It's good practice to not return the password_hash
-        user_data = new_user.to_json()
-        user_data.pop("password_hash", None)
-        return jsonify(user_data), 201
+        access_token = create_access_token(identity=new_user.id)
+        return jsonify(access_token=access_token, user_id=new_user.id), 201
     except Exception as e:
         db.session.rollback()
-        return jsonify(
-            {"error": f"An unexpected error occurred during user creation: {e}"}
-        ), 500
+        return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+
+
+@app.post("/login")
+def login():
+    """Authenticate a user and return an access token."""
+    data = request.get_json()
+    if not data or not data.get("username") or not data.get("password"):
+        return jsonify({"error": "Missing username or password"}), 400
+
+    user = User.query.filter_by(username=data["username"]).first()
+
+    if user and bcrypt.check_password_hash(user.password_hash, data["password"]):
+        access_token = create_access_token(identity=user.id)
+        return jsonify(access_token=access_token, user_id=user.id), 200
+
+    return jsonify({"error": "Invalid credentials"}), 401
 
 
 @app.route("/users", methods=["GET"])
+@jwt_required()
 def get_users():
-    """Get all users."""
+    """Get all users (for admin purposes)."""
     users = User.query.all()
-    # Filter out password_hash for security
-    return jsonify([user.to_json() for user in users])
+    return jsonify([user.to_json(include_password=False) for user in users])
 
 
-@app.route("/users/<int:user_id>", methods=["GET"])
-def get_user(user_id):
-    """Get a single user by ID."""
-    user = User.query.get_or_404(user_id)
-    user_data = user.to_json()
-    user_data.pop("password_hash", None)  # Ensure password hash is not exposed
-    return jsonify(user_data)
+@app.route("/profile", methods=["GET"])
+@jwt_required()
+def get_profile():
+    """Get the profile of the currently logged-in user."""
+    current_user_id = get_jwt_identity()
+    user = User.query.get_or_404(current_user_id)
+    return jsonify(user.to_json(include_password=False))
 
 
-@app.route("/users/<int:user_id>", methods=["PATCH"])
-def update_user(user_id):
-    """Update a user's information."""
-    if request.method == "PATCH":
-        user = User.query.get_or_404(user_id)
-        data = request.get_json()
+@app.route("/profile", methods=["PATCH"])
+@jwt_required()
+def update_profile():
+    """Update the profile of the currently logged-in user."""
+    current_user_id = get_jwt_identity()
+    user = User.query.get_or_404(current_user_id)
+    data = request.get_json()
 
-        if not data:
-            return jsonify({"error": "No data provided for update"}), 400
+    if not data:
+        return jsonify({"error": "No data provided for update"}), 400
 
-        # Check for username and email uniqueness if they are being updated
-        if "username" in data and data["username"] != user.username:
-            if User.query.filter_by(username=data["username"]).first():
-                return jsonify({"error": "Username already exists"}), 409
-        if "email" in data and data["email"] != user.email:
-            if User.query.filter_by(email=data["email"]).first():
-                return jsonify({"error": "Email already exists"}), 409
+    if "username" in data and data["username"] != user.username:
+        if User.query.filter_by(username=data["username"]).first():
+            return jsonify({"error": "Username already exists"}), 409
+        user.username = data["username"]
 
-        if "username" in data:
-            user.username = data["username"]
-        if "email" in data:
-            user.email = data["email"]
-        # Add logic to handle password update separately if needed, not directly via PATCH for email/username
+    if "email" in data and data["email"] != user.email:
+        if User.query.filter_by(email=data["email"]).first():
+            return jsonify({"error": "Email already exists"}), 409
+        user.email = data["email"]
 
-        try:
-            db.session.commit()
-            user_data = user.to_json()
-            user_data.pop("password_hash", None)
-            return jsonify(user_data)
-        except Exception as e:
-            db.session.rollback()
-            return jsonify(
-                {"error": f"An unexpected error occurred during user update: {e}"}
-            ), 500
+    try:
+        db.session.commit()
+        return jsonify(user.to_json(include_password=False))
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
 
 
-@app.route("/users/<int:user_id>", methods=["DELETE"])
-def delete_user(user_id):
-    """Delete a user."""
-    user = User.query.get_or_404(user_id)
+@app.route("/profile", methods=["DELETE"])
+@jwt_required()
+def delete_profile():
+    """Delete the profile of the currently logged-in user."""
+    current_user_id = get_jwt_identity()
+    user = User.query.get_or_404(current_user_id)
     try:
         db.session.delete(user)
         db.session.commit()
-        return jsonify({"message": f"User {user_id} deleted successfully."}), 200
+        return jsonify({"message": "User profile deleted successfully."}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify(
-            {"error": f"An unexpected error occurred during user deletion: {e}"}
-        ), 500
-
-
-# Workout Endpoints
+        return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
 
 
 @app.route("/workouts", methods=["POST"])
+@jwt_required()
 def create_workout():
-    """Create a new workout for a user."""
-    
+    """Create a new workout for the logged-in user."""
+    current_user_id = get_jwt_identity()
     data = request.get_json()
-    if (
-        not data
-        or not data.get("workout_name")
-        or not data.get("date")
-        or not data.get("user_id")
-    ):
-        return jsonify({"error": "Missing required fields: workout_name, date, user_id"}), 400
-
-    # Ensure the user exists before creating a workout for them
-    User.query.get_or_404(data["user_id"])  # This will return 404 if user not found
+    if not data or not data.get("workout_name") or not data.get("date"):
+        return jsonify({"error": "Missing required fields: workout_name, date"}), 400
 
     new_workout = Workout(
         workout_name=data["workout_name"],
         date=data["date"],
-        notes=data.get("notes"),  # Notes is optional
-        user_id=data["user_id"],
+        notes=data.get("notes"),
+        user_id=current_user_id,
     )
     try:
         db.session.add(new_workout)
@@ -177,189 +163,119 @@ def create_workout():
         return jsonify(new_workout.to_json()), 201
     except Exception as e:
         db.session.rollback()
-        return jsonify(
-            {"error": f"An unexpected error occurred during workout creation: {e}"}
-        ), 500
+        return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
 
 
 @app.route("/workouts", methods=["GET"])
+@jwt_required()
 def get_workouts():
-    """Get all workouts, optionally filtered by user_id."""
-    user_id = request.args.get("user_id")
-    if user_id:
-        workouts = Workout.query.filter_by(user_id=user_id).all()
-    else:
-        workouts = Workout.query.all()
+    """Get all workouts for the logged-in user."""
+    current_user_id = get_jwt_identity()
+    workouts = Workout.query.filter_by(user_id=current_user_id).all()
     return jsonify([workout.to_json() for workout in workouts])
 
 
-@app.route("/workouts/<int:workout_id>", methods=["GET"])
-def get_workout(workout_id):
-    """Get a single workout by ID."""
-    workout = Workout.query.get_or_404(workout_id)
-    return jsonify(workout.to_json())
+@app.route("/workouts/<int:workout_id>", methods=["GET", "PATCH", "DELETE"])
+@jwt_required()
+def handle_workout(workout_id):
+    """Get, update, or delete a single workout by ID."""
+    current_user_id = get_jwt_identity()
+    workout = Workout.query.filter_by(id=workout_id, user_id=current_user_id).first_or_404()
 
-
-@app.route("/workouts/<int:workout_id>", methods=["PATCH"])
-def update_workout(workout_id):
-    """Update a workout's information."""
-    workout = Workout.query.get_or_404(workout_id)
-    data = request.get_json()
-
-    if not data:
-        return jsonify({"error": "No data provided for update"}), 400
-
-    if "name" in data:
-        workout.name = data["name"]
-    if "date" in data:
-        workout.date = data["date"]
-    if "notes" in data:
-        workout.notes = data["notes"]
-
-    try:
-        db.session.commit()
+    if request.method == "GET":
         return jsonify(workout.to_json())
-    except Exception as e:
-        db.session.rollback()
-        return jsonify(
-            {"error": f"An unexpected error occurred during workout update: {e}"}
-        ), 500
 
+    if request.method == "DELETE":
+        try:
+            db.session.delete(workout)
+            db.session.commit()
+            return jsonify({"message": f"Workout {workout_id} deleted successfully."}), 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
 
-@app.route("/workouts/<int:workout_id>", methods=["DELETE"])
-def delete_workout(workout_id):
-    """Delete a workout."""
-    workout = Workout.query.get_or_404(workout_id)
-    try:
-        db.session.delete(workout)
-        db.session.commit()
-        return jsonify({"message": f"Workout {workout_id} deleted successfully."}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify(
-            {"error": f"An unexpected error occurred during workout deletion: {e}"}
-        ), 500
+    if request.method == "PATCH":
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided for update"}), 400
 
+        for key, value in data.items():
+            if hasattr(workout, key):
+                setattr(workout, key, value)
 
-# Exercise Endpoints
+        try:
+            db.session.commit()
+            return jsonify(workout.to_json())
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
 
 
 @app.route("/exercises", methods=["POST"])
+@jwt_required()
 def create_exercise():
-    """Create a new exercise for a workout."""
+    """Create a new exercise for a workout owned by the logged-in user."""
+    current_user_id = get_jwt_identity()
     data = request.get_json()
-    workout_id = data.get("workout_id")
-    name = data.get("name")
-    exercise_type = data.get(
-        "type"
-    )  # 'type' is a Python keyword, careful with variable naming
-
-    sets = data.get("sets")
-    reps = data.get("reps")
-    weight = data.get("weight")
-    duration = data.get("duration")
-
-    # Validate required fields
-    if not workout_id or not name:
+    if not data or not data.get("workout_id") or not data.get("name"):
         return jsonify({"error": "Missing required fields: workout_id and name"}), 400
 
-    # Check if the workout exists
-    workout = Workout.query.get(workout_id)
-    if not workout:
-        return jsonify({"error": "Workout not found for this exercise"}), 404
+    workout = Workout.query.filter_by(id=data["workout_id"], user_id=current_user_id).first_or_404()
 
+    new_exercise = Exercise(
+        name=data["name"],
+        type=data.get("type"),
+        sets=data.get("sets"),
+        reps=data.get("reps"),
+        weight=data.get("weight"),
+        duration=data.get("duration"),
+        workout_id=workout.id,
+    )
     try:
-        new_exercise = Exercise(
-            name=name,
-            type=exercise_type,
-            sets=sets,
-            reps=reps,
-            weight=weight,
-            duration=duration,
-            workout_id=workout_id,
-        )
         db.session.add(new_exercise)
         db.session.commit()
         return jsonify(new_exercise.to_json()), 201
-    except (
-        ValueError
-    ) as e:  # Catch specific ValueErrors if raised by your model's _init_
-        db.session.rollback()
-        return jsonify({"error": str(e)}), 400
-    except Exception as e:  # Catch any other unexpected errors
-        db.session.rollback()
-        return jsonify(
-            {"error": f"An unexpected error occurred during exercise creation: {e}"}
-        ), 500
-
-
-@app.route("/exercises", methods=["GET"])
-def get_exercises():
-    """Get all exercises."""
-    exercises = Exercise.query.all()
-    return jsonify([exercise.to_json() for exercise in exercises])
-
-
-@app.route("/exercises/<int:exercise_id>", methods=["GET"])
-def get_exercise(exercise_id):
-    """Get a single exercise by ID."""
-    exercise = Exercise.query.get_or_404(exercise_id)
-    return jsonify(exercise.to_json())
-
-
-@app.route("/exercises/<int:exercise_id>", methods=["PATCH"])
-def update_exercise(exercise_id):
-    """Update an exercise's information."""
-    exercise = Exercise.query.get_or_404(exercise_id)
-    data = request.get_json()
-
-    if not data:
-        return jsonify({"error": "No data provided for update"}), 400
-
-    # Update fields if provided in the request
-    if "name" in data:
-        exercise.name = data["name"]
-    if "type" in data:
-        exercise.type = data["type"]
-    if "sets" in data:
-        exercise.sets = data["sets"]
-    if "reps" in data:
-        exercise.reps = data["reps"]
-    if "weight" in data:
-        exercise.weight = data["weight"]
-    if "duration" in data:
-        exercise.duration = data["duration"]
-
-    try:
-        db.session.commit()
-        return jsonify(exercise.to_json())
-    except ValueError as e:
-        db.session.rollback()
-        return jsonify({"error": str(e)}), 400
     except Exception as e:
         db.session.rollback()
-        return jsonify(
-            {"error": f"An unexpected error occurred during exercise update: {e}"}
-        ), 500
+        return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+
+@app.route("/exercises/<int:exercise_id>", methods=["PATCH", "DELETE"])
+@jwt_required()
+def handle_exercise(exercise_id):
+    """Update or delete a single exercise by ID."""
+    current_user_id = get_jwt_identity()
+    exercise = (
+        db.session.query(Exercise)
+        .join(Workout)
+        .filter(Exercise.id == exercise_id, Workout.user_id == current_user_id)
+        .first_or_404()
+    )
+
+    if request.method == "DELETE":
+        try:
+            db.session.delete(exercise)
+            db.session.commit()
+            return jsonify({"message": f"Exercise {exercise_id} deleted successfully."}), 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+
+    if request.method == "PATCH":
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided for update"}), 400
+        
+        for key, value in data.items():
+            if hasattr(exercise, key):
+                setattr(exercise, key, value)
+
+        try:
+            db.session.commit()
+            return jsonify(exercise.to_json())
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
 
 
-@app.route("/exercises/<int:exercise_id>", methods=["DELETE"])
-def delete_exercise(exercise_id):
-    """Delete an exercise."""
-    exercise = Exercise.query.get_or_404(exercise_id)
-    try:
-        db.session.delete(exercise)
-        db.session.commit()
-        return jsonify(
-            {"message": f"Exercise {exercise_id} deleted successfully."}
-        ), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify(
-            {"error": f"An unexpected error occurred during exercise deletion: {e}"}
-        ), 500
-
-
-# running flask apps
-if __name__ == "_main":  # Corrected _name to _name_
+if __name__ == "__main__":
     app.run(port=9000, debug=True)

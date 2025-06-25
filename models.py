@@ -21,7 +21,7 @@ class User(db.Model):
 
     workouts = db.relationship(
          'Workout',
-         back_populates='user',   # changed from backref
+         back_populates='user',   
          cascade='all, delete-orphan',
          passive_deletes=True
     )
@@ -31,7 +31,6 @@ class User(db.Model):
         return f"<User(id={self.id}, name={self.name}, email={self.email})>"
     
     def to_json(self):
-        # Create a dictionary of all attributes
         user_data = {
             'id': self.id,
             'username': self.username,
@@ -82,11 +81,11 @@ class Exercise(db.Model):
         id = db.Column(db.Integer, primary_key=True)
         date = db.Column(db.DateTime(), default=datetime.now)
         name =db.Column(db.String, nullable=False)
-        type = db.Column(db.String, nullable=False)  # e.g., cardio, strength, mobility
+        type = db.Column(db.String, nullable=False) 
         sets = db.Column(db.Integer)
         reps = db.Column(db.Integer)
         weight = db.Column(db.Float, nullable=True)
-        duration = db.Column(db.Integer)  # in minutes
+        duration = db.Column(db.Integer) 
         workout_id = db.Column(db.Integer, db.ForeignKey('workouts.id', ondelete='CASCADE'), nullable=False)
 
         workout = relationship("Workout", back_populates="exercises")
