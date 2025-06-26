@@ -6,8 +6,9 @@ from flask_migrate import Migrate
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from flask_restful import Api, Resource
-from models import db, User, Workout, Exercise
+from models import db, User, Workout, Exercise, PersonalBest
 from dotenv import load_dotenv
+from datetime import datetime
 
 load_dotenv()  # Load environment variables from .env
 
@@ -134,33 +135,49 @@ class Profile(Resource):
 
 class WorkoutList(Resource):
     @jwt_required()
-    def post(self):
-        """Create a new workout for the logged-in user."""
-        current_user_id = get_jwt_identity()
-        data = request.get_json()
-        if not data or not data.get("workout_name"):
-            return jsonify({"error": "Missing required field: workout_name"}), 400
-
-        new_workout = Workout(
-            workout_name=data["workout_name"],
-            notes=data.get("notes"),
-            intensity=data.get("intensity"),
-            user_id=current_user_id,
-        )
-        try:
-            db.session.add(new_workout)
-            db.session.commit()
-            return make_response(jsonify(new_workout.to_dict()), 201)
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+    def get(self):
+        workouts = Workout.query.all()
+        return [w.to_dict() for w in workouts], 200
 
     @jwt_required()
-    def get(self):
-        """Get all workouts for the logged-in user."""
+    def post(self):
         current_user_id = get_jwt_identity()
-        workouts = Workout.query.filter_by(user_id=current_user_id).all()
-        return make_response(jsonify([workout.to_dict() for workout in workouts]))
+        data = request.get_json()
+
+        try:
+            # Ensure required fields are present
+            if 'workout_name' not in data or 'date' not in data:
+                return {"error": "Missing required fields: workout_name and date"}, 400
+
+            # Cast and parse values safely
+            workout_name = data['workout_name']
+            date = datetime.fromisoformat(data['date'])
+            notes = data.get('notes')
+
+            intensity = float(data.get('intensity', 0)) if data.get('intensity') else None
+            duration = int(data.get('duration', 0)) if data.get('duration') else None
+
+            # Create workout
+            workout = Workout(
+                workout_name=workout_name,
+                date=date,
+                notes=notes,
+                intensity=intensity,
+                duration=duration,
+                user_id=current_user_id
+            )
+
+            # Estimate calories
+            workout.estimated_calories = workout.calculate_estimated_calories()
+
+            db.session.add(workout)
+            db.session.commit()
+            return workout.to_dict(), 201
+
+        except Exception as e:
+            db.session.rollback()
+            return {"error": str(e)}, 400
+
 
 class WorkoutResource(Resource):
     @jwt_required()
@@ -180,17 +197,30 @@ class WorkoutResource(Resource):
         if not data:
             return jsonify({"error": "No data provided for update"}), 400
 
-        for key, value in data.items():
-            if hasattr(workout, key):
-                setattr(workout, key, value)
-
         try:
+            for key, value in data.items():
+                if hasattr(workout, key):
+                    if key == "intensity" and value is not None:
+                        workout.intensity = float(value)
+                    elif key == "duration" and value is not None:
+                        workout.duration = int(value)
+                    elif key == "date" and value:
+                        workout.date = datetime.fromisoformat(value)
+                    else:
+                        setattr(workout, key, value)
+
+            # Recalculate estimated calories only if both values are present
+            if workout.duration and workout.intensity:
+                workout.estimated_calories = workout.calculate_estimated_calories()
+
             db.session.commit()
-            return make_response(jsonify(workout.to_dict()))
+            return make_response(jsonify(workout.to_dict()), 200)
+
         except Exception as e:
             db.session.rollback()
-            return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+            return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
+    
     @jwt_required()
     def delete(self, workout_id):
         """Delete a single workout by ID."""
@@ -241,23 +271,102 @@ class ProgressSummary(Resource):
         workouts = Workout.query.filter_by(user_id=current_user_id).all()
         total_workouts = len(workouts)
         total_exercises = sum(len(w.exercises) for w in workouts)
-        calories_burned = sum([w.estimated_calories or 0 for w in workouts])  # You can adapt this
-        total_duration = sum([w.duration or 0 for w in workouts])
-        current_streak = 0  # Optional: implement streak tracking logic
-        total_distance = sum([w.distance or 0 for w in workouts if hasattr(w, "distance")])
+        calories_burned = sum(w.estimated_calories or 0 for w in workouts)
+        total_duration = sum(w.duration or 0 for w in workouts)
+        total_distance = sum(getattr(w, "distance", 0) or 0 for w in workouts)
+
+        # Fetch personal bests
+        pb_squat = (
+            PersonalBest.query
+            .filter_by(user_id=current_user_id, exercise_name="Squat")
+            .order_by(PersonalBest.max_weight.desc())
+            .first()
+        )
+
+        pb_run = (
+            PersonalBest.query
+            .filter_by(user_id=current_user_id, exercise_name="Run")
+            .order_by(PersonalBest.max_duration.desc())
+            .first()
+        )
+
+        user = User.query.get(current_user_id)
+        current_streak = user.get_current_streak() if user else 0
 
         summary = {
             "totalWorkouts": total_workouts,
             "totalExercises": total_exercises,
-            "caloriesBurned": calories_burned,
+            "caloriesBurned": int(calories_burned),
             "avgWorkoutDuration": f"{int(total_duration / total_workouts)} minutes" if total_workouts else "0 minutes",
             "currentStreak": current_streak,
-            "personalBestSquat": "120 kg",  # Optional: pull from user goals/pb
-            "longestRun": "0 km",  # Optional: adjust from actual run data
+            "personalBestSquat": f"{pb_squat.max_weight} kg" if pb_squat and pb_squat.max_weight else "N/A",
+            "longestRun": f"{pb_run.max_duration} min" if pb_run and pb_run.max_duration else "N/A",
             "totalDistance": f"{total_distance} km",
         }
 
         return make_response(jsonify(summary), 200)
+
+class PersonalBestList(Resource):
+    @jwt_required()
+    def get(self):
+        current_user_id = get_jwt_identity()
+        personal_bests = PersonalBest.query.filter_by(user_id=current_user_id).all()
+        return make_response(jsonify([pb.to_dict() for pb in personal_bests]), 200)
+
+    @jwt_required()
+    def post(self):
+        current_user_id = get_jwt_identity()
+        data = request.get_json()
+
+        if not data or not data.get("exercise_name"):
+            return jsonify({"error": "Missing required field: exercise_name"}), 400
+
+        new_pb = PersonalBest(
+            user_id=current_user_id,
+            exercise_name=data["exercise_name"],
+            max_weight=data.get("max_weight"),
+            max_reps=data.get("max_reps"),
+            max_duration=data.get("max_duration"),
+        )
+
+        try:
+            db.session.add(new_pb)
+            db.session.commit()
+            return make_response(jsonify(new_pb.to_dict()), 201)
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": f"Unexpected error: {e}"}), 500
+
+class PersonalBestResource(Resource):
+    @jwt_required()
+    def patch(self, pb_id):
+        current_user_id = get_jwt_identity()
+        pb = PersonalBest.query.filter_by(id=pb_id, user_id=current_user_id).first_or_404()
+        data = request.get_json()
+
+        for key, value in data.items():
+            if hasattr(pb, key):
+                setattr(pb, key, value)
+
+        try:
+            db.session.commit()
+            return make_response(jsonify(pb.to_dict()), 200)
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": f"Unexpected error: {e}"}), 500
+
+    @jwt_required()
+    def delete(self, pb_id):
+        current_user_id = get_jwt_identity()
+        pb = PersonalBest.query.filter_by(id=pb_id, user_id=current_user_id).first_or_404()
+
+        try:
+            db.session.delete(pb)
+            db.session.commit()
+            return make_response(jsonify({"message": "Personal best deleted."}), 200)
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": f"Unexpected error: {e}"}), 500
 
 
 class ExerciseResource(Resource):
@@ -315,7 +424,8 @@ api.add_resource(WorkoutResource, "/workouts/<int:workout_id>")
 api.add_resource(ExerciseList, "/exercises")
 api.add_resource(ExerciseResource, "/exercises/<int:exercise_id>")
 api.add_resource(ProgressSummary, "/progress")
-
+api.add_resource(PersonalBestList, "/personal-bests")
+api.add_resource(PersonalBestResource, "/personal-bests/<int:pb_id>")
 
 if __name__ == "__main__":
     app.run(port=5000, debug=True)

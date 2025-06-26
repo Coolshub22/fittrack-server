@@ -135,6 +135,7 @@ class Exercise(db.Model, SerializerMixin):
         return value
 
 # -------------------- PERSONAL BEST --------------------
+# models.py
 class PersonalBest(db.Model, SerializerMixin):
     __tablename__ = "personal_bests"
     serialize_rules = ('-user.personal_bests',)
@@ -146,7 +147,8 @@ class PersonalBest(db.Model, SerializerMixin):
     max_reps = db.Column(db.Integer, nullable=True)
     max_duration = db.Column(db.Integer, nullable=True)
 
-    user = relationship("User", back_populates="personal_bests")
+    user = db.relationship("User", back_populates="personal_bests")
 
     def __repr__(self):
         return f"<PersonalBest(user_id={self.user_id}, exercise={self.exercise_name})>"
+
