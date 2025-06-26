@@ -232,6 +232,34 @@ class ExerciseList(Resource):
             db.session.rollback()
             return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
 
+class ProgressSummary(Resource):
+    @jwt_required()
+    def get(self):
+        """Get progress summary for the logged-in user."""
+        current_user_id = get_jwt_identity()
+
+        workouts = Workout.query.filter_by(user_id=current_user_id).all()
+        total_workouts = len(workouts)
+        total_exercises = sum(len(w.exercises) for w in workouts)
+        calories_burned = sum([w.estimated_calories or 0 for w in workouts])  # You can adapt this
+        total_duration = sum([w.duration or 0 for w in workouts])
+        current_streak = 0  # Optional: implement streak tracking logic
+        total_distance = sum([w.distance or 0 for w in workouts if hasattr(w, "distance")])
+
+        summary = {
+            "totalWorkouts": total_workouts,
+            "totalExercises": total_exercises,
+            "caloriesBurned": calories_burned,
+            "avgWorkoutDuration": f"{int(total_duration / total_workouts)} minutes" if total_workouts else "0 minutes",
+            "currentStreak": current_streak,
+            "personalBestSquat": "120 kg",  # Optional: pull from user goals/pb
+            "longestRun": "0 km",  # Optional: adjust from actual run data
+            "totalDistance": f"{total_distance} km",
+        }
+
+        return make_response(jsonify(summary), 200)
+
+
 class ExerciseResource(Resource):
     @jwt_required()
     def patch(self, exercise_id):
@@ -286,6 +314,8 @@ api.add_resource(WorkoutList, "/workouts")
 api.add_resource(WorkoutResource, "/workouts/<int:workout_id>")
 api.add_resource(ExerciseList, "/exercises")
 api.add_resource(ExerciseResource, "/exercises/<int:exercise_id>")
+api.add_resource(ProgressSummary, "/progress")
+
 
 if __name__ == "__main__":
-    app.run(port=9000, debug=True)
+    app.run(port=5000, debug=True)

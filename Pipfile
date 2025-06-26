@@ -15,7 +15,10 @@ python-dotenv = "*"
 sqlalchemy-serializer = "*"
 faker = "*"
 flask-bcrypt = "*"
-bcrypt = "*"
+flask-jwt-extended = "*"
+flask-restful = "*"
+dotenv = "*"
+gunicorn = "*"
 
 [dev-packages]
 
