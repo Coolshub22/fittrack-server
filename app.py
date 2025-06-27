@@ -302,6 +302,8 @@ class ProgressSummary(Resource):
             "personalBestSquat": f"{pb_squat.max_weight} kg" if pb_squat and pb_squat.max_weight else "N/A",
             "longestRun": f"{pb_run.max_duration} min" if pb_run and pb_run.max_duration else "N/A",
             "totalDistance": f"{total_distance} km",
+            "longestStreak": user.longest_streak,
+
         }
 
         return make_response(jsonify(summary), 200)

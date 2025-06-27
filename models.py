@@ -18,6 +18,8 @@ class User(db.Model, SerializerMixin):
     password_hash = db.Column(db.String, nullable=False, default='fittrack25')
     avatar = db.Column(db.String, nullable=True)
     date = db.Column(db.DateTime(), default=datetime.now)
+    longest_streak = db.Column(db.Integer, default=0)
+
 
     workouts = relationship("Workout", back_populates="user", cascade='all, delete-orphan', passive_deletes=True)
     personal_bests = relationship("PersonalBest", back_populates="user", cascade='all, delete-orphan', passive_deletes=True)
@@ -38,29 +40,32 @@ class User(db.Model, SerializerMixin):
         return value
 
     def get_current_streak(self):
-        """Returns the number of consecutive workout days (streak) up to today."""
-        results = (
+        """Returns and updates the number of consecutive workout days (streak) up to today."""
+        dates = (
             db.session.query(func.date(Workout.date))
             .filter_by(user_id=self.id)
             .order_by(Workout.date.desc())
             .distinct()
             .all()
         )
-
-        workout_dates = {datetime.strptime(str(d[0]), "%Y-%m-%d").date() for d in results}
-
         streak = 0
         today = datetime.now().date()
-
-        for i in range(len(workout_dates)):
-            check_date = today - timedelta(days=i)
-            if check_date in workout_dates:
+        for i, (d,) in enumerate(dates):
+            if i == 0 and d != today:
+                break
+            expected_date = today - timedelta(days=i)
+            if d == expected_date:
                 streak += 1
             else:
                 break
 
+        # Update longest_streak if this streak is the new max
+        if streak > self.longest_streak:
+            self.longest_streak = streak
+            db.session.commit()
+
         return streak
-    
+
     def to_dict(self, rules=()):
         base = super().to_dict(rules=rules)
         base["current_streak"] = self.get_current_streak()
