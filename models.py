@@ -16,7 +16,10 @@ class User(db.Model, SerializerMixin):
     username = db.Column(db.String, unique=True, nullable=False)
     email = db.Column(db.String, unique=True)
     password_hash = db.Column(db.String, nullable=False, default='fittrack25')
+    avatar = db.Column(db.String, nullable=True)
     date = db.Column(db.DateTime(), default=datetime.now)
+    longest_streak = db.Column(db.Integer, default=0)
+
 
     workouts = relationship("Workout", back_populates="user", cascade='all, delete-orphan', passive_deletes=True)
     personal_bests = relationship("PersonalBest", back_populates="user", cascade='all, delete-orphan', passive_deletes=True)
@@ -37,7 +40,7 @@ class User(db.Model, SerializerMixin):
         return value
 
     def get_current_streak(self):
-        """Returns the number of consecutive workout days (streak) up to today."""
+        """Returns and updates the number of consecutive workout days (streak) up to today."""
         dates = (
             db.session.query(func.date(Workout.date))
             .filter_by(user_id=self.id)
@@ -55,7 +58,19 @@ class User(db.Model, SerializerMixin):
                 streak += 1
             else:
                 break
+
+        # Update longest_streak if this streak is the new max
+        if streak > self.longest_streak:
+            self.longest_streak = streak
+            db.session.commit()
+
         return streak
+
+    def to_dict(self, rules=()):
+        base = super().to_dict(rules=rules)
+        base["current_streak"] = self.get_current_streak()
+        base["personal_bests"] = [pb.to_dict() for pb in self.personal_bests]
+        return base
 
 # -------------------- WORKOUT --------------------
 class Workout(db.Model, SerializerMixin):
