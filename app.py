@@ -8,6 +8,7 @@ from flask_restful import Api, Resource
 from models import db, User, Workout, Exercise, PersonalBest
 from dotenv import load_dotenv
 from datetime import datetime
+import os 
 
 load_dotenv()  # Load environment variables from .env
 
