@@ -16,7 +16,10 @@ class User(db.Model, SerializerMixin):
     username = db.Column(db.String, unique=True, nullable=False)
     email = db.Column(db.String, unique=True)
     password_hash = db.Column(db.String, nullable=False, default='fittrack25')
+    avatar = db.Column(db.String, nullable=True)
     date = db.Column(db.DateTime(), default=datetime.now)
+    longest_streak = db.Column(db.Integer, default=0)
+
 
     workouts = relationship("Workout", back_populates="user", cascade='all, delete-orphan', passive_deletes=True)
     personal_bests = relationship("PersonalBest", back_populates="user", cascade='all, delete-orphan', passive_deletes=True)
@@ -37,7 +40,7 @@ class User(db.Model, SerializerMixin):
         return value
 
     def get_current_streak(self):
-        """Returns the number of consecutive workout days (streak) up to today."""
+        """Returns and updates the number of consecutive workout days (streak) up to today."""
         dates = (
             db.session.query(func.date(Workout.date))
             .filter_by(user_id=self.id)
@@ -55,7 +58,19 @@ class User(db.Model, SerializerMixin):
                 streak += 1
             else:
                 break
+
+        # Update longest_streak if this streak is the new max
+        if streak > self.longest_streak:
+            self.longest_streak = streak
+            db.session.commit()
+
         return streak
+
+    def to_dict(self, rules=()):
+        base = super().to_dict(rules=rules)
+        base["current_streak"] = self.get_current_streak()
+        base["personal_bests"] = [pb.to_dict() for pb in self.personal_bests]
+        return base
 
 # -------------------- WORKOUT --------------------
 class Workout(db.Model, SerializerMixin):
@@ -108,12 +123,16 @@ class Exercise(db.Model, SerializerMixin):
 
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.DateTime(), default=datetime.now)
-    name = db.Column(db.String, nullable=False)
-    type = db.Column(db.String, nullable=False)  # cardio, strength, mobility
-    sets = db.Column(db.Integer)
-    reps = db.Column(db.Integer)
-    weight = db.Column(db.Float, nullable=True)
-    duration = db.Column(db.Integer)  # in minutes
+    name = db.Column(db.String, nullable=False) # Maps to frontend 'exercise_name'
+    type = db.Column(db.String, nullable=False) # Maps to frontend 'category' (needs validation update)
+
+    # New fields from frontend
+    muscle_group = db.Column(db.String, nullable=False) # New
+    equipment = db.Column(db.String, nullable=False)    # New
+    instructions = db.Column(db.Text, nullable=False)   # New
+    difficulty = db.Column(db.String, default='beginner') # New
+
+   
     workout_id = db.Column(db.Integer, db.ForeignKey('workouts.id', ondelete='CASCADE'), nullable=False)
 
     workout = relationship("Workout", back_populates="exercises")
@@ -123,18 +142,36 @@ class Exercise(db.Model, SerializerMixin):
 
     @validates("type")
     def validate_type(self, key, value):
-        valid_types = ['cardio', 'strength', 'mobility']
+        # Update valid_types to match your frontend categories
+        valid_types = ['Strength', 'Cardio', 'Flexibility', 'Balance', 'Sports', 'Functional']
         if value not in valid_types:
-            raise ValueError("Type must be one of: cardio, strength, mobility")
+            raise ValueError(f"Type must be one of: {', '.join(valid_types)}")
         return value
 
-    @validates('sets', 'reps', 'duration')
-    def validate_positive_numbers(self, key, value):
-        if value is not None and value < 0:
-            raise ValueError(f'{key.capitalize()} must be a positive number')
+    @validates('muscle_group')
+    def validate_muscle_group(self, key, value):
+        valid_groups = ['Chest', 'Back', 'Shoulders', 'Arms', 'Legs', 'Core', 'Full Body', 'Cardio']
+        if value not in valid_groups:
+            raise ValueError(f"Muscle group must be one of: {', '.join(valid_groups)}")
         return value
 
+    @validates('equipment')
+    def validate_equipment(self, key, value):
+        valid_equipment = ['None (Bodyweight)', 'Dumbbells', 'Barbell', 'Resistance Bands', 'Kettlebell', 'Machine', 'Cable', 'Other']
+        if value not in valid_equipment:
+            raise ValueError(f"Equipment must be one of: {', '.join(valid_equipment)}")
+        return value
+
+    @validates('difficulty')
+    def validate_difficulty(self, key, value):
+        valid_difficulties = ['beginner', 'intermediate', 'advanced']
+        if value not in valid_difficulties:
+            raise ValueError(f"Difficulty must be one of: {', '.join(valid_difficulties)}")
+        return value
+
+   
 # -------------------- PERSONAL BEST --------------------
+# models.py
 class PersonalBest(db.Model, SerializerMixin):
     __tablename__ = "personal_bests"
     serialize_rules = ('-user.personal_bests',)
@@ -146,7 +183,8 @@ class PersonalBest(db.Model, SerializerMixin):
     max_reps = db.Column(db.Integer, nullable=True)
     max_duration = db.Column(db.Integer, nullable=True)
 
-    user = relationship("User", back_populates="personal_bests")
+    user = db.relationship("User", back_populates="personal_bests")
 
     def __repr__(self):
         return f"<PersonalBest(user_id={self.user_id}, exercise={self.exercise_name})>"
+
