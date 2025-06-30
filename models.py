@@ -195,7 +195,19 @@ class WorkoutExercise(db.Model, SerializerMixin):
     serialize_rules = ('-workout.workout_exercises', '-exercise_template.workout_exercises')
 
     id = db.Column(db.Integer, primary_key=True)
-    
+
+    date = db.Column(db.DateTime(), default=datetime.now)
+    name = db.Column(db.String, nullable=False) # Maps to frontend 'exercise_name'
+    type = db.Column(db.String, nullable=False) # Maps to frontend 'category' (needs validation update)
+
+    # New fields from frontend
+    muscle_group = db.Column(db.String, nullable=False) # New
+    equipment = db.Column(db.String, nullable=False)    # New
+    instructions = db.Column(db.Text, nullable=False)   # New
+    difficulty = db.Column(db.String, default='beginner') # New
+
+   
+
     workout_id = db.Column(db.Integer, db.ForeignKey('workouts.id', ondelete='CASCADE'), nullable=False)
     exercise_template_id = db.Column(db.Integer, db.ForeignKey('exercise_templates.id'), nullable=False)
 
@@ -211,32 +223,39 @@ class WorkoutExercise(db.Model, SerializerMixin):
     def __repr__(self):
         return f"<WorkoutExercise(id={self.id}, workout_id={self.workout_id}, template_id={self.exercise_template_id})>"
 
-    @validates('sets', 'reps', 'duration')
-    def validate_positive_integers(self, key, value):
-        if value is not None and value < 0:
-            raise ValueError(f'{key.capitalize()} must be a non-negative integer.')
+
+    @validates("type")
+    def validate_type(self, key, value):
+        # Update valid_types to match your frontend categories
+        valid_types = ['Strength', 'Cardio', 'Flexibility', 'Balance', 'Sports', 'Functional']
+        if value not in valid_types:
+            raise ValueError(f"Type must be one of: {', '.join(valid_types)}")
         return value
 
-    @validates('weight', 'distance')
-    def validate_positive_floats(self, key, value):
-        if value is not None and value < 0:
-            raise ValueError(f'{key.capitalize()} must be a non-negative number.')
+    @validates('muscle_group')
+    def validate_muscle_group(self, key, value):
+        valid_groups = ['Chest', 'Back', 'Shoulders', 'Arms', 'Legs', 'Core', 'Full Body', 'Cardio']
+        if value not in valid_groups:
+            raise ValueError(f"Muscle group must be one of: {', '.join(valid_groups)}")
         return value
 
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'workout_id': self.workout_id, 
-            'exercise_template_id': self.exercise_template_id,
-            'name': self.exercise_template.name, 
-            'type': self.exercise_template.type, 
-            'supports_distance': self.exercise_template.supports_distance, 
-            'sets': self.sets,
-            'reps': self.reps,
-            'weight': self.weight,
-            'duration': self.duration,
-            'distance': self.distance,
-        }
+    @validates('equipment')
+    def validate_equipment(self, key, value):
+        valid_equipment = ['None (Bodyweight)', 'Dumbbells', 'Barbell', 'Resistance Bands', 'Kettlebell', 'Machine', 'Cable', 'Other']
+        if value not in valid_equipment:
+            raise ValueError(f"Equipment must be one of: {', '.join(valid_equipment)}")
+        return value
+
+    @validates('difficulty')
+    def validate_difficulty(self, key, value):
+        valid_difficulties = ['beginner', 'intermediate', 'advanced']
+        if value not in valid_difficulties:
+            raise ValueError(f"Difficulty must be one of: {', '.join(valid_difficulties)}")
+        return value
+
+   
+# -------------------- PERSONAL BEST --------------------
+# models.py
 
 class PersonalBest(db.Model, SerializerMixin):
     __tablename__ = "personal_bests"

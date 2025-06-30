@@ -345,6 +345,63 @@ class WorkoutResource(Resource):
             return make_response(jsonify({"error": f"An unexpected error occurred: {e}"}), 500)
 
 
+class ExerciseList(Resource):
+    @jwt_required()
+    def post(self):
+        """Create a new exercise for a workout owned by the logged-in user."""
+        current_user_id = get_jwt_identity()
+        data = request.get_json()
+
+        # Update required fields based on your frontend form
+        required_fields = ["workout_id", "exercise_name", "category", "muscleGroup", "equipment", "instructions"]
+        if not all(field in data and data[field] for field in required_fields):
+            return jsonify({"error": f"Missing required fields: {', '.join(required_fields)}"}), 400
+
+        workout = Workout.query.filter_by(id=data["workout_id"], user_id=current_user_id).first_or_404()
+
+        new_exercise = Exercise(
+            name=data["exercise_name"], # Map frontend 'exercise_name' to backend 'name'
+            type=data["category"],       # Map frontend 'category' to backend 'type'
+            muscle_group=data["muscleGroup"], # New field
+            equipment=data["equipment"],     # New field
+            instructions=data["instructions"], # New field
+            difficulty=data.get("difficulty", "beginner"), # New field, with default
+            workout_id=workout.id,
+            # date will be defaulted by the model
+        )
+        try:
+            db.session.add(new_exercise)
+            db.session.commit()
+            return make_response(jsonify(new_exercise.to_dict()), 201)
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+    @jwt_required()
+    def get(self):
+        """
+        Get all exercises for all workouts owned by the logged-in user,
+        or filter by workout_id if provided as a query parameter.
+        """
+        current_user_id = get_jwt_identity()
+        workout_id = request.args.get('workout_id') # Get workout_id from query parameters
+
+        if workout_id:
+            # Fetch exercises for a specific workout, ensuring the workout belongs to the user
+            workout = Workout.query.filter_by(id=workout_id, user_id=current_user_id).first()
+            if not workout:
+                return jsonify({"error": "Workout not found or not owned by user"}), 404
+            exercises = Exercise.query.filter_by(workout_id=workout.id).all()
+        else:
+            # Fetch all exercises across all workouts for the current user
+            # This requires joining Exercise and Workout to filter by user_id
+            exercises = db.session.query(Exercise)\
+                            .join(Workout)\
+                            .filter(Workout.user_id == current_user_id)\
+                            .all()
+
+        return make_response(jsonify([exercise.to_dict() for exercise in exercises]), 200)
+      ]
+
 class ProgressSummary(Resource):
     @jwt_required()
     def get(self):
