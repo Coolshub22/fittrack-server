@@ -1,4 +1,3 @@
-# app.py
 import os
 from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
@@ -6,11 +5,11 @@ from flask_migrate import Migrate
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from flask_restful import Api, Resource
-from models import db, User, Workout, Exercise, PersonalBest
+from models import db, User, Workout, WorkoutType, ExerciseTemplate, WorkoutExercise, PersonalBest
 from dotenv import load_dotenv
 from datetime import datetime
 
-load_dotenv()  # Load environment variables from .env
+load_dotenv()
 
 app = Flask(__name__)
 app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "a-secure-default-secret-key")
@@ -27,27 +26,24 @@ api = Api(app)
 
 @app.errorhandler(404)
 def not_found(error):
-    """Handles 404 Not Found errors."""
-    return jsonify({"error": "Not found"}), 404
+    return make_response(jsonify({"error": "Not found"}), 404)
 
 class Index(Resource):
     def get(self):
-        """Welcome endpoint for the API."""
         body = {"message": "Welcome to FitTrack API!"}
-        return make_response(body, 200)
+        return body, 200
 
 class Register(Resource):
     def post(self):
-        """Create a new user."""
         data = request.get_json()
         if not data or not all(k in data for k in ("username", "email", "password")):
-            return jsonify({"error": "Missing required fields: username, email, password"}), 400
+            return make_response(jsonify({"error": "Missing required fields: username, email, password"}), 400)
 
         if User.query.filter_by(username=data["username"]).first():
-            return jsonify({"error": "Username already exists"}), 409
+            return make_response(jsonify({"error": "Username already exists"}), 409)
 
         if User.query.filter_by(email=data["email"]).first():
-            return jsonify({"error": "Email already exists"}), 409
+            return make_response(jsonify({"error": "Email already exists"}), 409)
 
         hashed_password = bcrypt.generate_password_hash(data["password"]).decode('utf-8')
         new_user = User(
@@ -58,85 +54,97 @@ class Register(Resource):
             db.session.add(new_user)
             db.session.commit()
             access_token = create_access_token(identity=new_user.id)
-            return make_response(jsonify(access_token=access_token, user_id=new_user.id), 201)
+            return {"access_token": access_token, "user_id": new_user.id}, 201
         except Exception as e:
             db.session.rollback()
-            return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+            return make_response(jsonify({"error": f"An unexpected error occurred: {e}"}), 500)
 
 class Login(Resource):
     def post(self):
-        """Authenticate a user and return an access token."""
         data = request.get_json()
         if not data or not data.get("username") or not data.get("password"):
-            return jsonify({"error": "Missing username or password"}), 400
+            return make_response(jsonify({"error": "Missing username or password"}), 400)
 
         user = User.query.filter_by(username=data["username"]).first()
 
         if user and bcrypt.check_password_hash(user.password_hash, data["password"]):
             access_token = create_access_token(identity=user.id)
-            return make_response(jsonify(access_token=access_token, user_id=user.id), 200)
+            return {"access_token": access_token, "user_id": user.id}, 200
 
-        return jsonify({"error": "Invalid credentials"}), 401
+        return make_response(jsonify({"error": "Invalid credentials"}), 401)
 
 class UserList(Resource):
     @jwt_required()
     def get(self):
-        """Get all users (for admin purposes)."""
-        users = User.query.all()
-        return make_response(jsonify([user.to_dict(rules=('-workouts', '-password_hash')) for user in users]))
+        user = User.query.all()
+        return [user.to_dict(rules=('-workouts', '-password_hash'))], 200
 
 class Profile(Resource):
     @jwt_required()
     def get(self):
-        """Get the profile of the currently logged-in user."""
         current_user_id = get_jwt_identity()
         user = User.query.get_or_404(current_user_id)
-        return make_response(jsonify(user.to_dict(rules=('-workouts', '-password_hash'))))
+        return user.to_dict(rules=('-workouts', '-password_hash')), 200
 
     @jwt_required()
     def patch(self):
-        """Update the profile of the currently logged-in user."""
         current_user_id = get_jwt_identity()
         user = User.query.get_or_404(current_user_id)
         data = request.get_json()
 
         if not data:
-            return jsonify({"error": "No data provided for update"}), 400
+            return make_response(jsonify({"error": "No data provided for update"}), 400)
 
         if "username" in data and data["username"] != user.username:
             if User.query.filter_by(username=data["username"]).first():
-                return jsonify({"error": "Username already exists"}), 409
+                return make_response(jsonify({"error": "Username already exists"}), 409)
             user.username = data["username"]
 
         if "email" in data and data["email"] != user.email:
             if User.query.filter_by(email=data["email"]).first():
-                return jsonify({"error": "Email already exists"}), 409
+                return make_response(jsonify({"error": "Email already exists"}), 409)
             user.email = data["email"]
 
         try:
             db.session.commit()
-            return make_response(jsonify(user.to_dict(rules=('-workouts', '-password_hash'))))
+            return user.to_dict(rules=('-workouts', '-password_hash')), 200
         except Exception as e:
             db.session.rollback()
-            return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+            return make_response(jsonify({"error": f"An unexpected error occurred: {e}"}), 500)
 
     @jwt_required()
     def delete(self):
-        """Delete the profile of the currently logged-in user."""
         current_user_id = get_jwt_identity()
         user = User.query.get_or_404(current_user_id)
         try:
             db.session.delete(user)
             db.session.commit()
-            return make_response(jsonify({"message": "User profile deleted successfully."}), 200)
+            return {"message": "User profile deleted successfully."}, 200
         except Exception as e:
             db.session.rollback()
-            return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+            return make_response(jsonify({"error": f"An unexpected error occurred: {e}"}), 500)
+
+class WorkoutTypeList(Resource):
+    @jwt_required()
+    def get(self):
+        types = WorkoutType.query.all()
+        return [wt.to_dict() for wt in types], 200
+
+class ExerciseTemplateList(Resource):
+    @jwt_required()
+    def get(self, workout_type_id):
+        workout_type = WorkoutType.query.get(workout_type_id)
+        if not workout_type:
+            return make_response(jsonify({'error': 'WorkoutType not found'}), 404)
+        
+        exercises = ExerciseTemplate.query.filter_by(workout_type_id=workout_type_id).all()
+        return [et.to_dict() for et in exercises], 200
 
 class WorkoutList(Resource):
     @jwt_required()
     def get(self):
-        workouts = Workout.query.all()
+        current_user_id = get_jwt_identity()
+        workouts = Workout.query.filter_by(user_id=current_user_id).all()
         return [w.to_dict() for w in workouts], 200
 
     @jwt_required()
@@ -145,85 +153,187 @@ class WorkoutList(Resource):
         data = request.get_json()
 
         try:
-            # Ensure required fields are present
-            if 'workout_name' not in data or 'date' not in data:
-                return {"error": "Missing required fields: workout_name and date"}, 400
+            workout_name = data.get('workout_name')
+            date_str = data.get('date')
+            workout_type_id = data.get('workout_type_id')
+            exercises_data = data.get('exercises', [])
 
-            # Cast and parse values safely
-            workout_name = data['workout_name']
-            date = datetime.fromisoformat(data['date'])
-            notes = data.get('notes')
+            if not all([workout_name, date_str, workout_type_id]):
+                return make_response(jsonify({"error": "Missing required fields: workout_name, date, workout_type_id"}), 400)
 
-            intensity = float(data.get('intensity', 0)) if data.get('intensity') else None
-            duration = int(data.get('duration', 0)) if data.get('duration') else None
+            workout_date = datetime.fromisoformat(date_str.replace('Z', '+00:00') if date_str.endswith('Z') else date_str)
 
-            # Create workout
-            workout = Workout(
+            workout_type = WorkoutType.query.get(workout_type_id)
+            if not workout_type:
+                return make_response(jsonify({"error": "Workout type not found"}), 404)
+
+            new_workout = Workout(
                 workout_name=workout_name,
-                date=date,
-                notes=notes,
-                intensity=intensity,
-                duration=duration,
-                user_id=current_user_id
+                notes=data.get('notes'),
+                intensity=float(data.get('intensity')) if data.get('intensity') is not None else None,
+                duration=int(data.get('duration')) if data.get('duration') is not None else None,
+                date=workout_date,
+                user_id=current_user_id,
+                workout_type_id=workout_type_id
             )
+            
+            new_workout.estimated_calories = new_workout.calculate_estimated_calories()
 
-            # Estimate calories
-            workout.estimated_calories = workout.calculate_estimated_calories()
+            db.session.add(new_workout)
+            db.session.flush()
 
-            db.session.add(workout)
+            for ex_data in exercises_data:
+                exercise_template_id = ex_data.get('exercise_template_id')
+                
+                exercise_template = ExerciseTemplate.query.get(exercise_template_id)
+                if not exercise_template:
+                    db.session.rollback()
+                    return make_response(jsonify({'error': f'Exercise template ID {exercise_template_id} not found.'}), 400)
+                
+                if exercise_template.workout_type_id != workout_type_id:
+                     db.session.rollback()
+                     return make_response(jsonify({'error': f'Exercise template ID {exercise_template_id} does not belong to the selected workout type.'}), 400)
+
+                workout_exercise = WorkoutExercise(
+                    workout_id=new_workout.id,
+                    exercise_template_id=exercise_template_id,
+                    sets=int(ex_data.get('sets')) if ex_data.get('sets') is not None else None,
+                    reps=int(ex_data.get('reps')) if ex_data.get('reps') is not None else None,
+                    weight=float(ex_data.get('weight')) if ex_data.get('weight') is not None else None,
+                    duration=int(ex_data.get('duration')) if ex_data.get('duration') is not None else None,
+                    distance=float(ex_data.get('distance')) if ex_data.get('distance') is not None else None
+                )
+                db.session.add(workout_exercise)
+            
             db.session.commit()
-            return workout.to_dict(), 201
+            return new_workout.to_dict(), 201
 
+        except ValueError as ve:
+            db.session.rollback()
+            return make_response(jsonify({"error": str(ve)}), 400)
         except Exception as e:
             db.session.rollback()
-            return {"error": str(e)}, 400
-
+            return make_response(jsonify({"error": f"An unexpected error occurred: {e}"}), 500)
 
 class WorkoutResource(Resource):
     @jwt_required()
     def get(self, workout_id):
-        """Get a single workout by ID."""
         current_user_id = get_jwt_identity()
         workout = Workout.query.filter_by(id=workout_id, user_id=current_user_id).first_or_404()
-        return make_response(jsonify(workout.to_dict()))
+        return workout.to_dict(), 200
 
     @jwt_required()
     def patch(self, workout_id):
-        """Update a single workout by ID."""
         current_user_id = get_jwt_identity()
         workout = Workout.query.filter_by(id=workout_id, user_id=current_user_id).first_or_404()
         data = request.get_json()
 
         if not data:
-            return jsonify({"error": "No data provided for update"}), 400
+            return make_response(jsonify({"error": "No data provided for update"}), 400)
 
         try:
-            for key, value in data.items():
-                if hasattr(workout, key):
-                    if key == "intensity" and value is not None:
-                        workout.intensity = float(value)
-                    elif key == "duration" and value is not None:
-                        workout.duration = int(value)
-                    elif key == "date" and value:
-                        workout.date = datetime.fromisoformat(value)
+            # Update main workout fields
+            workout.workout_name = data.get('workout_name', workout.workout_name)
+            workout.notes = data.get('notes', workout.notes)
+            
+            workout.intensity = float(data.get('intensity')) if data.get('intensity') is not None else workout.intensity
+            workout.duration = int(data.get('duration')) if data.get('duration') is not None else workout.duration
+            
+            date_str = data.get('date')
+            if date_str:
+                workout.date = datetime.fromisoformat(date_str.replace('Z', '+00:00') if date_str.endswith('Z') else date_str)
+
+            new_workout_type_id = data.get('workout_type_id')
+            if new_workout_type_id is not None and new_workout_type_id != workout.workout_type_id:
+                workout_type = WorkoutType.query.get(new_workout_type_id)
+                if not workout_type:
+                    return make_response(jsonify({'error': 'New workout type not found'}), 404)
+                workout.workout_type_id = new_workout_type_id
+                # If workout type changes, it's safer to clear existing WorkoutExercises
+                # as they might not be valid for the new type.
+                WorkoutExercise.query.filter_by(workout_id=workout.id).delete()
+                # If workout type changes, we assume all old exercises are gone and new ones will be provided
+                # So we continue to the exercise update logic below.
+            
+            exercises_data = data.get('exercises')
+            if exercises_data is not None:
+                # Get current exercise IDs for this workout
+                current_exercise_ids = {we.id for we in workout.workout_exercises}
+                updated_or_new_exercise_ids = set()
+
+                for ex_data in exercises_data:
+                    exercise_template_id = ex_data.get('exercise_template_id')
+                    exercise_template = ExerciseTemplate.query.get(exercise_template_id)
+                    if not exercise_template:
+                        db.session.rollback()
+                        return make_response(jsonify({'error': f'Exercise template ID {exercise_template_id} not found for update.'}), 400)
+                    
+                    if exercise_template.workout_type_id != workout.workout_type_id:
+                         db.session.rollback()
+                         return make_response(jsonify({'error': f'Exercise template ID {exercise_template_id} does not belong to the updated workout type.'}), 400)
+
+                    # Check if this is an existing exercise (by id, if provided from frontend)
+                    workout_exercise_id = ex_data.get('id')
+                    if workout_exercise_id:
+                        # Find the existing WorkoutExercise instance
+                        existing_we = WorkoutExercise.query.get(workout_exercise_id)
+                        if existing_we and existing_we.workout_id == workout.id:
+                            # Update existing exercise
+                            existing_we.sets = int(ex_data.get('sets')) if ex_data.get('sets') is not None else existing_we.sets
+                            existing_we.reps = int(ex_data.get('reps')) if ex_data.get('reps') is not None else existing_we.reps
+                            existing_we.weight = float(ex_data.get('weight')) if ex_data.get('weight') is not None else existing_we.weight
+                            existing_we.duration = int(ex_data.get('duration')) if ex_data.get('duration') is not None else existing_we.duration
+                            existing_we.distance = float(ex_data.get('distance')) if ex_data.get('distance') is not None else existing_we.distance
+                            updated_or_new_exercise_ids.add(existing_we.id)
+                        else:
+                            # If ID provided but not found or doesn't belong to this workout, treat as new
+                            workout_exercise = WorkoutExercise(
+                                workout_id=workout.id,
+                                exercise_template_id=exercise_template_id,
+                                sets=int(ex_data.get('sets')) if ex_data.get('sets') is not None else None,
+                                reps=int(ex_data.get('reps')) if ex_data.get('reps') is not None else None,
+                                weight=float(ex_data.get('weight')) if ex_data.get('weight') is not None else None,
+                                duration=int(ex_data.get('duration')) if ex_data.get('duration') is not None else None,
+                                distance=float(ex_data.get('distance')) if ex_data.get('distance') is not None else None
+                            )
+                            db.session.add(workout_exercise)
+                            db.session.flush() # To get ID for tracking
+                            updated_or_new_exercise_ids.add(workout_exercise.id)
                     else:
-                        setattr(workout, key, value)
+                        # Add new exercise
+                        workout_exercise = WorkoutExercise(
+                            workout_id=workout.id,
+                            exercise_template_id=exercise_template_id,
+                            sets=int(ex_data.get('sets')) if ex_data.get('sets') is not None else None,
+                            reps=int(ex_data.get('reps')) if ex_data.get('reps') is not None else None,
+                            weight=float(ex_data.get('weight')) if ex_data.get('weight') is not None else None,
+                            duration=int(ex_data.get('duration')) if ex_data.get('duration') is not None else None,
+                            distance=float(ex_data.get('distance')) if ex_data.get('distance') is not None else None
+                        )
+                        db.session.add(workout_exercise)
+                        db.session.flush() # To get ID for tracking
+                        updated_or_new_exercise_ids.add(workout_exercise.id)
 
-            # Recalculate estimated calories only if both values are present
-            if workout.duration and workout.intensity:
-                workout.estimated_calories = workout.calculate_estimated_calories()
-
+                # Delete exercises that are no longer present in the updated list
+                exercises_to_delete = current_exercise_ids - updated_or_new_exercise_ids
+                for we_id in exercises_to_delete:
+                    we_to_delete = WorkoutExercise.query.get(we_id)
+                    if we_to_delete:
+                        db.session.delete(we_to_delete)
+            
+            workout.estimated_calories = workout.calculate_estimated_calories()
             db.session.commit()
-            return make_response(jsonify(workout.to_dict()), 200)
+            return workout.to_dict(), 200
 
+        except ValueError as ve:
+            db.session.rollback()
+            return make_response(jsonify({"error": str(ve)}), 400)
         except Exception as e:
             db.session.rollback()
-            return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+            return make_response(jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500)
 
-    
     @jwt_required()
     def delete(self, workout_id):
-        """Delete a single workout by ID."""
         current_user_id = get_jwt_identity()
         workout = Workout.query.filter_by(id=workout_id, user_id=current_user_id).first_or_404()
         try:
@@ -232,86 +342,70 @@ class WorkoutResource(Resource):
             return make_response(jsonify({"message": f"Workout {workout_id} deleted successfully."}), 200)
         except Exception as e:
             db.session.rollback()
-            return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+            return make_response(jsonify({"error": f"An unexpected error occurred: {e}"}), 500)
 
-class ExerciseList(Resource):
-    @jwt_required()
-    def post(self):
-        """Create a new exercise for a workout owned by the logged-in user."""
-        current_user_id = get_jwt_identity()
-        data = request.get_json()
-        if not data or not data.get("workout_id") or not data.get("name"):
-            return jsonify({"error": "Missing required fields: workout_id and name"}), 400
-
-        workout = Workout.query.filter_by(id=data["workout_id"], user_id=current_user_id).first_or_404()
-
-        new_exercise = Exercise(
-            name=data["name"],
-            type=data.get("type"),
-            sets=data.get("sets"),
-            reps=data.get("reps"),
-            weight=data.get("weight"),
-            duration=data.get("duration"),
-            workout_id=workout.id,
-        )
-        try:
-            db.session.add(new_exercise)
-            db.session.commit()
-            return make_response(jsonify(new_exercise.to_dict()), 201)
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
 
 class ProgressSummary(Resource):
     @jwt_required()
     def get(self):
-        """Get progress summary for the logged-in user."""
         current_user_id = get_jwt_identity()
 
+        try:
+            user = User.query.get_or_404(current_user_id) 
+            current_streak_value = user.get_current_streak() 
+            longest_streak_value = user.longest_streak
+            db.session.commit() 
+        except Exception as e:
+            return make_response(jsonify({"error": f"Failed to get user data or calculate streak: {e}"}), 500)
+        
         workouts = Workout.query.filter_by(user_id=current_user_id).all()
         total_workouts = len(workouts)
-        total_exercises = sum(len(w.exercises) for w in workouts)
+        
+        total_exercises = sum(len(w.workout_exercises) for w in workouts)
         calories_burned = sum(w.estimated_calories or 0 for w in workouts)
         total_duration = sum(w.duration or 0 for w in workouts)
-        total_distance = sum(getattr(w, "distance", 0) or 0 for w in workouts)
+        
+        total_distance = sum(
+            we.distance or 0 
+            for w in workouts 
+            for we in w.workout_exercises 
+            if we.distance is not None
+        )
 
-        # Fetch personal bests
         pb_squat = (
             PersonalBest.query
-            .filter_by(user_id=current_user_id, exercise_name="Squat")
+            .filter_by(user_id=current_user_id, exercise_name="Squats")
             .order_by(PersonalBest.max_weight.desc())
             .first()
         )
 
         pb_run = (
             PersonalBest.query
-            .filter_by(user_id=current_user_id, exercise_name="Run")
-            .order_by(PersonalBest.max_duration.desc())
+            .filter_by(user_id=current_user_id, exercise_name="Running")
+            .order_by(PersonalBest.max_distance.desc())
             .first()
         )
-
-        user = User.query.get(current_user_id)
-        current_streak = user.get_current_streak() if user else 0
-
+        
         summary = {
             "totalWorkouts": total_workouts,
             "totalExercises": total_exercises,
             "caloriesBurned": int(calories_burned),
             "avgWorkoutDuration": f"{int(total_duration / total_workouts)} minutes" if total_workouts else "0 minutes",
-            "currentStreak": current_streak,
+            "currentStreak": current_streak_value,
             "personalBestSquat": f"{pb_squat.max_weight} kg" if pb_squat and pb_squat.max_weight else "N/A",
-            "longestRun": f"{pb_run.max_duration} min" if pb_run and pb_run.max_duration else "N/A",
+            "longestRun": f"{pb_run.max_distance} km" if pb_run and pb_run.max_distance else "N/A",
             "totalDistance": f"{total_distance} km",
+            "longestStreak": longest_streak_value,
         }
 
-        return make_response(jsonify(summary), 200)
+        return summary, 200
 
 class PersonalBestList(Resource):
     @jwt_required()
     def get(self):
         current_user_id = get_jwt_identity()
         personal_bests = PersonalBest.query.filter_by(user_id=current_user_id).all()
-        return make_response(jsonify([pb.to_dict() for pb in personal_bests]), 200)
+        return [pb.to_dict() for pb in personal_bests], 200
 
     @jwt_required()
     def post(self):
@@ -319,7 +413,7 @@ class PersonalBestList(Resource):
         data = request.get_json()
 
         if not data or not data.get("exercise_name"):
-            return jsonify({"error": "Missing required field: exercise_name"}), 400
+            return make_response(jsonify({"error": "Missing required field: exercise_name"}), 400)
 
         new_pb = PersonalBest(
             user_id=current_user_id,
@@ -327,15 +421,20 @@ class PersonalBestList(Resource):
             max_weight=data.get("max_weight"),
             max_reps=data.get("max_reps"),
             max_duration=data.get("max_duration"),
+            max_distance=data.get("max_distance"),
+            date_achieved=datetime.now()
         )
 
         try:
             db.session.add(new_pb)
             db.session.commit()
-            return make_response(jsonify(new_pb.to_dict()), 201)
+            return new_pb.to_dict(), 201
+        except ValueError as ve:
+            db.session.rollback()
+            return make_response(jsonify({"error": str(ve)}), 400)
         except Exception as e:
             db.session.rollback()
-            return jsonify({"error": f"Unexpected error: {e}"}), 500
+            return make_response(jsonify({"error": f"Unexpected error: {e}"}), 500)
 
 class PersonalBestResource(Resource):
     @jwt_required()
@@ -344,16 +443,25 @@ class PersonalBestResource(Resource):
         pb = PersonalBest.query.filter_by(id=pb_id, user_id=current_user_id).first_or_404()
         data = request.get_json()
 
-        for key, value in data.items():
-            if hasattr(pb, key):
-                setattr(pb, key, value)
-
         try:
+            for key, value in data.items():
+                if hasattr(pb, key):
+                    if key in ['max_weight', 'max_distance'] and value is not None:
+                        setattr(pb, key, float(value))
+                    elif key in ['max_reps', 'max_duration'] and value is not None:
+                        setattr(pb, key, int(value))
+                    else:
+                        setattr(pb, key, value)
+            pb.date_achieved = datetime.now()
+
             db.session.commit()
-            return make_response(jsonify(pb.to_dict()), 200)
+            return pb.to_dict(), 200
+        except ValueError as ve:
+            db.session.rollback()
+            return make_response(jsonify({"error": str(ve)}), 400)
         except Exception as e:
             db.session.rollback()
-            return jsonify({"error": f"Unexpected error: {e}"}), 500
+            return make_response(jsonify({"error": f"Unexpected error: {e}"}), 500)
 
     @jwt_required()
     def delete(self, pb_id):
@@ -363,66 +471,20 @@ class PersonalBestResource(Resource):
         try:
             db.session.delete(pb)
             db.session.commit()
-            return make_response(jsonify({"message": "Personal best deleted."}), 200)
+            return {"message": "Personal best deleted."}, 200
         except Exception as e:
             db.session.rollback()
-            return jsonify({"error": f"Unexpected error: {e}"}), 500
+            return make_response(jsonify({"error": f"An unexpected error occurred: {e}"}), 500)
 
-
-class ExerciseResource(Resource):
-    @jwt_required()
-    def patch(self, exercise_id):
-        """Update a single exercise by ID."""
-        current_user_id = get_jwt_identity()
-        exercise = (
-            db.session.query(Exercise)
-            .join(Workout)
-            .filter(Exercise.id == exercise_id, Workout.user_id == current_user_id)
-            .first_or_404()
-        )
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "No data provided for update"}), 400
-
-        for key, value in data.items():
-            if hasattr(exercise, key):
-                setattr(exercise, key, value)
-
-        try:
-            db.session.commit()
-            return make_response(jsonify(exercise.to_dict()))
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
-
-    @jwt_required()
-    def delete(self, exercise_id):
-        """Delete a single exercise by ID."""
-        current_user_id = get_jwt_identity()
-        exercise = (
-            db.session.query(Exercise)
-            .join(Workout)
-            .filter(Exercise.id == exercise_id, Workout.user_id == current_user_id)
-            .first_or_404()
-        )
-        try:
-            db.session.delete(exercise)
-            db.session.commit()
-            return make_response(jsonify({"message": f"Exercise {exercise_id} deleted successfully."}), 200)
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
-
-# Add resources to the API
 api.add_resource(Index, "/")
 api.add_resource(Register, "/register")
 api.add_resource(Login, "/login")
 api.add_resource(UserList, "/users")
 api.add_resource(Profile, "/profile")
+api.add_resource(WorkoutTypeList, "/workout_types")
+api.add_resource(ExerciseTemplateList, "/workout_types/<int:workout_type_id>/exercises")
 api.add_resource(WorkoutList, "/workouts")
 api.add_resource(WorkoutResource, "/workouts/<int:workout_id>")
-api.add_resource(ExerciseList, "/exercises")
-api.add_resource(ExerciseResource, "/exercises/<int:exercise_id>")
 api.add_resource(ProgressSummary, "/progress")
 api.add_resource(PersonalBestList, "/personal-bests")
 api.add_resource(PersonalBestResource, "/personal-bests/<int:pb_id>")
