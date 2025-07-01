@@ -89,6 +89,20 @@ class Workout(db.Model, SerializerMixin):
     workout_type = relationship("WorkoutType", back_populates="workouts")
     workout_exercises = relationship("WorkoutExercise", back_populates="workout", cascade="all, delete-orphan")
 
+    def calculate_estimated_calories(self):
+        total = 0
+        for we in self.workout_exercises:
+            if we.duration:
+                # Adjust calorie burn rate per minute based on type
+                if we.type.lower() == 'cardio':
+                    total += we.duration * 8
+                elif we.type.lower() == 'strength':
+                    total += we.duration * 6
+                else:
+                    total += we.duration * 4  # default rate for other types
+            elif we.sets and we.reps:
+                total += (we.sets * we.reps) * 0.5
+        return round(total)
 
 class WorkoutExercise(db.Model, SerializerMixin):
     __tablename__ = "workout_exercises"
