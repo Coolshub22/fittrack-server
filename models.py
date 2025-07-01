@@ -39,41 +39,40 @@ class User(db.Model, SerializerMixin):
         return value
 
     def get_current_streak(self):
+        date_column = func.date(Workout.date).label("date_only")
+
         workout_dates = (
-            db.session.query(func.date(Workout.date))
+            db.session.query(date_column)
             .filter_by(user_id=self.id)
-            .order_by(Workout.date.desc())
-            .group_by(func.date(Workout.date))
+            .group_by(date_column)
+            .order_by(date_column.desc())
             .all()
         )
-        
+
         dates = {d[0] for d in workout_dates}
-        
+
         streak = 0
         today = datetime.now(timezone.utc).date()
         current_date = today
 
-        # Start from today and go backward as long as a workout exists
         while current_date in dates:
             streak += 1
             current_date -= timedelta(days=1)
 
-        # Optionally update longest_streak
         if streak > self.longest_streak:
             self.longest_streak = streak
 
-
         return streak
+
     
     def get_longest_streak(self):
-        """
-        Recalculates longest consecutive-day workout streak (does not mutate).
-        """
+        date_column = func.date(Workout.date).label("date_only")
+
         workout_dates = (
-            db.session.query(func.date(Workout.date))
+            db.session.query(date_column)
             .filter_by(user_id=self.id)
-            .order_by(Workout.date)
-            .group_by(func.date(Workout.date))
+            .group_by(date_column)
+            .order_by(date_column)
             .all()
         )
 
