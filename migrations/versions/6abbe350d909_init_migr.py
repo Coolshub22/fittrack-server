@@ -1,8 +1,8 @@
-"""Add template_id to Exercise
+"""init migr
 
-Revision ID: a8bcf49953ef
+Revision ID: 6abbe350d909
 Revises: 
-Create Date: 2025-06-30 06:40:42.770161
+Create Date: 2025-06-30 09:15:31.301887
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'a8bcf49953ef'
+revision = '6abbe350d909'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -73,6 +73,13 @@ def upgrade():
     )
     op.create_table('workout_exercises',
     sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('date', sa.DateTime(), nullable=True),
+    sa.Column('name', sa.String(), nullable=False),
+    sa.Column('type', sa.String(), nullable=False),
+    sa.Column('muscle_group', sa.String(), nullable=False),
+    sa.Column('equipment', sa.String(), nullable=False),
+    sa.Column('instructions', sa.Text(), nullable=False),
+    sa.Column('difficulty', sa.String(), nullable=True),
     sa.Column('workout_id', sa.Integer(), nullable=False),
     sa.Column('exercise_template_id', sa.Integer(), nullable=False),
     sa.Column('sets', sa.Integer(), nullable=True),

@@ -2,7 +2,7 @@
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import relationship, validates
 from sqlalchemy import MetaData, func
-from datetime import datetime, timedelta 
+from datetime import datetime, timedelta, timezone 
 from sqlalchemy_serializer import SerializerMixin
 
 metadata = MetaData()
@@ -50,24 +50,55 @@ class User(db.Model, SerializerMixin):
         dates = {d[0] for d in workout_dates}
         
         streak = 0
-        today = datetime.now().date()
-        
-        current_date_check = None
-        if today in dates:
-            current_date_check = today
-        elif (today - timedelta(days=1)) in dates: 
-            current_date_check = today - timedelta(days=1)
-        
-        if current_date_check:
-            temp_date = current_date_check
-            while temp_date in dates:
-                streak += 1
-                temp_date -= timedelta(days=1) 
-        
+        today = datetime.now(timezone.utc).date()
+        current_date = today
+
+        # Start from today and go backward as long as a workout exists
+        while current_date in dates:
+            streak += 1
+            current_date -= timedelta(days=1)
+
+        # Optionally update longest_streak
         if streak > self.longest_streak:
             self.longest_streak = streak
-            
+
+
         return streak
+    
+    def get_longest_streak(self):
+        """
+        Recalculates longest consecutive-day workout streak (does not mutate).
+        """
+        workout_dates = (
+            db.session.query(func.date(Workout.date))
+            .filter_by(user_id=self.id)
+            .order_by(Workout.date)
+            .distinct()
+            .all()
+        )
+
+        dates = sorted({d[0] for d in workout_dates})
+        if not dates:
+            return 0
+
+        longest = 1
+        current = 1
+
+        for i in range(1, len(dates)):
+            if dates[i] == dates[i - 1] + timedelta(days=1):
+                current += 1
+                longest = max(longest, current)
+            else:
+                current = 1
+
+        return longest
+
+    
+    def update_streak(self):
+        streak = self.get_current_streak()
+        self.longest_streak = max(self.longest_streak, streak)
+        db.session.add(self)
+
 
     def to_dict(self, rules=()):
         # Explicitly build the dictionary for User
@@ -133,7 +164,7 @@ class Workout(db.Model, SerializerMixin):
     serialize_rules = ('-user.workouts', '-workout_type.workouts', '-workout_exercises.workout')
 
     id = db.Column(db.Integer, primary_key=True)
-    date = db.Column(db.DateTime(), default=datetime.now)
+    date = db.Column(db.DateTime(), default=datetime.now(timezone.utc), nullable=False)
     workout_name = db.Column(db.String, nullable=False)
     notes = db.Column(db.Text, nullable=True)
     intensity = db.Column(db.Float)
@@ -259,7 +290,7 @@ class WorkoutExercise(db.Model, SerializerMixin):
 
 class PersonalBest(db.Model, SerializerMixin):
     __tablename__ = "personal_bests"
-    serialize_rules = ('-user.personal_bests',)
+    serialize_rules = ('-user',)
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
