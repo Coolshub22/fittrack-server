@@ -128,10 +128,13 @@ class UserList(Resource):
 class Profile(Resource):
     @jwt_required()
     def get(self):
-        current_user_id = get_jwt_identity()
-        user = User.query.get_or_404(current_user_id)
-        return user.to_dict(rules=('-workouts', '-password_hash')), 200
-
+        try:
+            current_user_id = get_jwt_identity()
+            user = User.query.get_or_404(current_user_id)
+            return user.to_dict(include_current_streak=True), 200
+        except Exception as e:
+            print(f"[PROFILE ERROR]: {e}")
+            return make_response(jsonify({"error": "Failed to fetch profile"}), 500)
     @jwt_required()
     def patch(self):
         current_user_id = get_jwt_identity()
