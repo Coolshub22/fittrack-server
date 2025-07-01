@@ -47,7 +47,7 @@ class User(db.Model, SerializerMixin):
             db.session.query(date_col)
             .filter_by(user_id=self.id)
             .order_by(date_col)
-            .group_by(date_col.desc())
+            .group_by(date_col)
             .all()
         )
         
@@ -78,7 +78,7 @@ class User(db.Model, SerializerMixin):
             db.session.query(date_col)
             .filter_by(user_id=self.id)
             .order_by(date_col)
-            .group_by(date_col.desc())
+            .group_by(date_col)
             .all()
         )
 
