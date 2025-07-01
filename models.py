@@ -43,7 +43,7 @@ class User(db.Model, SerializerMixin):
             db.session.query(func.date(Workout.date))
             .filter_by(user_id=self.id)
             .order_by(Workout.date.desc())
-            .distinct()
+            .group_by(func.date(Workout.date))
             .all()
         )
         
@@ -73,7 +73,7 @@ class User(db.Model, SerializerMixin):
             db.session.query(func.date(Workout.date))
             .filter_by(user_id=self.id)
             .order_by(Workout.date)
-            .distinct()
+            .group_by(func.date(Workout.date))
             .all()
         )
 
