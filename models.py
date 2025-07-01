@@ -1,7 +1,7 @@
 # models.py
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import relationship, validates
-from sqlalchemy import MetaData, func
+from sqlalchemy import MetaData, Date, cast
 from datetime import datetime, timedelta, timezone
 from sqlalchemy_serializer import SerializerMixin
 
@@ -43,10 +43,10 @@ class User(db.Model, SerializerMixin):
 
     def get_current_streak(self):
         workout_dates = (
-            db.session.query(func.date(Workout.date))
+            db.session.query(cast(Workout.date, Date))
             .filter_by(user_id=self.id)
             .order_by(Workout.date.desc())
-            .group_by(func.date(Workout.date))
+            .group_by(cast(Workout.date, Date))
             .all()
         )
         
@@ -71,6 +71,32 @@ class User(db.Model, SerializerMixin):
             self.longest_streak = streak
             
         return streak
+    def get_longest_streak(self):
+        from sqlalchemy import cast, Date
+
+        workout_dates = (
+            db.session.query(cast(Workout.date, Date))
+            .filter_by(user_id=self.id)
+            .order_by(Workout.date.desc())
+            .group_by(cast(Workout.date, Date))
+            .all()
+        )
+
+        dates = {d[0] for d in workout_dates}
+        max_streak = 0
+        current_streak = 0
+        previous_date = None
+
+        for d in sorted(dates):
+            if previous_date and (d - previous_date).days == 1:
+                current_streak += 1
+            else:
+                current_streak = 1
+            max_streak = max(max_streak, current_streak)
+            previous_date = d
+
+        return max_streak
+
 
     def to_dict(self, include_current_streak=False):
         data = {
@@ -85,7 +111,11 @@ class User(db.Model, SerializerMixin):
             # 'workouts': [w.to_dict() for w in self.workouts] # Only if needed and carefully managed
         }
         if include_current_streak:
-            data['current_streak'] = self.get_current_streak()
+            try:
+                data['current_streak'] = self.get_current_streak()
+            except Exception as e:
+                data['current_streak'] = None
+                print(f"[to_dict] Error getting current streak: {e}")
         return data
 
 class WorkoutType(db.Model, SerializerMixin):

@@ -119,8 +119,11 @@ class Login(Resource):
 class UserList(Resource):
     @jwt_required()
     def get(self):
-        user = User.query.all()
-        return [user.to_dict(rules=('-workouts', '-password_hash'))], 200
+        users = User.query.all()
+        try:
+            return [u.to_dict(include_current_streak=True) for u in users], 200
+        except Exception as e:
+            return make_response(jsonify({"error": f"Failed to serialize user: {e}"}), 500)
 
 class Profile(Resource):
     @jwt_required()
