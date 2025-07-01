@@ -42,11 +42,12 @@ class User(db.Model, SerializerMixin):
         return value
 
     def get_current_streak(self):
+        date_col = cast(Workout.date, Date)
         workout_dates = (
-            db.session.query(cast(Workout.date, Date))
+            db.session.query(date_col)
             .filter_by(user_id=self.id)
-            .order_by(Workout.date.desc())
-            .group_by(cast(Workout.date, Date))
+            .order_by(date_col)
+            .group_by(date_col.desc())
             .all()
         )
         
@@ -72,13 +73,12 @@ class User(db.Model, SerializerMixin):
             
         return streak
     def get_longest_streak(self):
-        from sqlalchemy import cast, Date
-
+        date_col = cast(Workout.date, Date)
         workout_dates = (
-            db.session.query(cast(Workout.date, Date))
+            db.session.query(date_col)
             .filter_by(user_id=self.id)
-            .order_by(Workout.date.desc())
-            .group_by(cast(Workout.date, Date))
+            .order_by(date_col)
+            .group_by(date_col.desc())
             .all()
         )
 
