@@ -7,12 +7,13 @@ from flask_jwt_extended import JWTManager, create_access_token, jwt_required, ge
 from flask_restful import Api, Resource
 from models import db, User, Workout, WorkoutType, ExerciseTemplate, WorkoutExercise, PersonalBest
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 
 load_dotenv()
 
 app = Flask(__name__)
 app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "a-secure-default-secret-key")
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(days=30)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///fittrack.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.json.compact = False
@@ -27,6 +28,48 @@ api = Api(app)
 @app.errorhandler(404)
 def not_found(error):
     return make_response(jsonify({"error": "Not found"}), 404)
+
+def recalculate_personal_bests(user_id):
+    from sqlalchemy import func
+
+    # Clear all existing PBs
+    PersonalBest.query.filter_by(user_id=user_id).delete()
+
+    # Aggregate max values per exercise name
+    workout_data = (
+        db.session.query(
+            ExerciseTemplate.name.label("exercise_name"),
+            func.max(WorkoutExercise.weight).label("max_weight"),
+            func.max(WorkoutExercise.reps).label("max_reps"),
+            func.max(WorkoutExercise.duration).label("max_duration"),
+            func.max(WorkoutExercise.distance).label("max_distance")
+        )
+        .join(ExerciseTemplate, WorkoutExercise.exercise_template_id == ExerciseTemplate.id)
+        .join(Workout, WorkoutExercise.workout_id == Workout.id)
+        .filter(Workout.user_id == user_id)
+        .group_by(ExerciseTemplate.name)
+        .all()
+    )
+
+    for row in workout_data:
+        pb = PersonalBest(
+            user_id=user_id,
+            exercise_name=row.exercise_name,
+            max_weight=row.max_weight,
+            max_reps=row.max_reps,
+            max_duration=row.max_duration,
+            max_distance=row.max_distance,
+            date_achieved=datetime.now()
+        )
+        db.session.add(pb)
+
+    db.session.commit()
+
+def update_user_streaks(user_id):
+    user = User.query.get(user_id)
+    if user:
+        user.longest_streak = user.get_longest_streak()
+        db.session.commit()
 
 class Index(Resource):
     def get(self):
@@ -206,6 +249,8 @@ class WorkoutList(Resource):
                 db.session.add(workout_exercise)
             
             db.session.commit()
+            recalculate_personal_bests(current_user_id)
+            update_user_streaks(current_user_id)
             return new_workout.to_dict(), 201
 
         except ValueError as ve:
@@ -323,6 +368,8 @@ class WorkoutResource(Resource):
             
             workout.estimated_calories = workout.calculate_estimated_calories()
             db.session.commit()
+            recalculate_personal_bests(current_user_id)
+            update_user_streaks(current_user_id)
             return workout.to_dict(), 200
 
         except ValueError as ve:
@@ -338,6 +385,8 @@ class WorkoutResource(Resource):
         workout = Workout.query.filter_by(id=workout_id, user_id=current_user_id).first_or_404()
         try:
             db.session.delete(workout)
+            recalculate_personal_bests(current_user_id)
+            update_user_streaks(current_user_id)
             db.session.commit()
             return make_response(jsonify({"message": f"Workout {workout_id} deleted successfully."}), 200)
         except Exception as e:
