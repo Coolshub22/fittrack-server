@@ -14,7 +14,7 @@ load_dotenv()
 app = Flask(__name__)
 app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "a-secure-default-secret-key")
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(days=30)
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///fittrack.db"
+app.config["SQLALCHEMY_DATABASE_URI"] = "postgresql://fittrack_db_1nck_user:yAvE12ifRErOeZokwYLK6iogffk1d3Mi@dpg-d1hod87fte5s73ahsfgg-a/fittrack_db_1nck"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.json.compact = False
 
