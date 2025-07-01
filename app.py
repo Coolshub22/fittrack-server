@@ -8,6 +8,7 @@ from flask_restful import Api, Resource
 from models import db, User, Workout, WorkoutType, ExerciseTemplate, WorkoutExercise, PersonalBest
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
+import traceback
 
 load_dotenv()
 
@@ -201,6 +202,18 @@ class WorkoutList(Resource):
         current_user_id = get_jwt_identity()
         data = request.get_json()
 
+        def safe_int(val):
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                return None
+
+        def safe_float(val):
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                return None
+
         try:
             workout_name = data.get('workout_name')
             date_str = data.get('date')
@@ -246,12 +259,14 @@ class WorkoutList(Resource):
                 workout_exercise = WorkoutExercise(
                     workout_id=new_workout.id,
                     exercise_template_id=exercise_template_id,
-                    sets=int(ex_data.get('sets')) if ex_data.get('sets') is not None else None,
-                    reps=int(ex_data.get('reps')) if ex_data.get('reps') is not None else None,
-                    weight=float(ex_data.get('weight')) if ex_data.get('weight') is not None else None,
-                    duration=int(ex_data.get('duration')) if ex_data.get('duration') is not None else None,
-                    distance=float(ex_data.get('distance')) if ex_data.get('distance') is not None else None
+                    sets=safe_int(ex_data.get('sets')),
+                    reps=safe_int(ex_data.get('reps')),
+                    weight=safe_float(ex_data.get('weight')),
+                    duration=safe_int(ex_data.get('duration')),
+                    distance=safe_float(ex_data.get('distance'))
                 )
+
+
                 db.session.add(workout_exercise)
             
             db.session.commit()
@@ -264,6 +279,7 @@ class WorkoutList(Resource):
             return make_response(jsonify({"error": str(ve)}), 400)
         except Exception as e:
             db.session.rollback()
+            print("[WORKOUT CREATE ERROR]:", traceback.format_exc())
             return make_response(jsonify({"error": f"An unexpected error occurred: {e}"}), 500)
 
 class WorkoutResource(Resource):
